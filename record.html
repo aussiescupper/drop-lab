@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson Recording Booth — Drop Lab</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: "Arial Rounded MT Bold", "Trebuchet MS", Verdana, sans-serif; background: #1c2a3a; color: #fffdf4; min-height: 100vh; padding: 24px 16px 60px; }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 28px; margin-bottom: 6px; }
+    .sub { opacity: 0.85; margin-bottom: 18px; line-height: 1.45; font-size: 15px; }
+    .warn { background: #7f1d1d; border-radius: 12px; padding: 12px 16px; margin-bottom: 18px; font-size: 15px; display: none; }
+    .tips { background: rgba(255,255,255,0.1); border-radius: 8px; padding: 12px 16px; margin-bottom: 22px; font-size: 14px; line-height: 1.55; }
+    .card { background: #fffdf4; color: #16202b; border-radius: 8px; padding: 16px 18px; margin-bottom: 14px; box-shadow: 0 5px 0 rgba(0,0,0,0.35); }
+    .card .num { font-size: 12px; font-weight: bold; color: #b84f0c; letter-spacing: 1px; }
+    .card .line { font-size: 19px; font-weight: bold; line-height: 1.4; margin: 6px 0 12px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    button { font-family: inherit; border: none; cursor: pointer; border-radius: 8px; padding: 10px 18px; font-size: 15px; font-weight: bold; }
+    .rec { background: #dc2626; color: #fff; }
+    .rec.armed { background: #16a34a; }
+    .dl { background: #2e6b31; color: #fff; text-decoration: none; border-radius: 8px; padding: 10px 18px; font-size: 15px; font-weight: bold; display: none; }
+    audio { height: 40px; max-width: 220px; display: none; }
+    .status { font-size: 13px; opacity: 0.7; min-width: 90px; }
+    .done-note { margin-top: 22px; background: rgba(255,255,255,0.1); border-radius: 8px; padding: 14px 16px; font-size: 14px; line-height: 1.55; }
+    code { background: rgba(0,0,0,0.35); padding: 2px 6px; border-radius: 6px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🎙️ Drop Lab Recording Booth</h1>
+    <p class="sub">Record the seven CUBES lesson lines in your own voice — one per step. You are Professor Bin here: calm, a bit fussy about checking, pleased when it's done right. Tap <b>Record</b>, read, tap <b>Stop</b>, listen back, re-record as often as you like, then <b>Download</b>.</p>
+    <div id="warn" class="warn"><b>Please open this page in Safari.</b> This browser records a format iPads can't play.</div>
+    <div class="tips"><b>Tips:</b> quiet room · 30 cm from the mic · say the letters clearly ("C — circle the numbers") · half a second of silence at each end.</div>
+    <div id="cards"></div>
+    <div class="done-note"><b>When you're done:</b> the files are <code>lesson-0.m4a</code> … <code>lesson-6.m4a</code>. Put them in the OneDrive "Rail Runner Audio" folder (or a new "Drop Lab Audio" one) and tell Claude.</div>
+  </div>
+  <script>
+    "use strict";
+    const LINES = [
+      { file: "lesson-0.m4a", text: "This is an Experiment Request. Professor Bin will NOT drop a single duck until it has been CUBES-checked — last time someone skipped the check, the lab filled with foam. Five steps, one letter each. Same card as your tutor's." },
+      { file: "lesson-1.m4a", text: "C — CIRCLE the numbers. All of them, even the ones you might not need. Deciding what matters comes later. For now, just catch every number." },
+      { file: "lesson-2.m4a", text: "U — UNDERLINE the question. It's the sentence that ASKS something. Usually it has a question mark, but not always. Sometimes it says 'Work out…'" },
+      { file: "lesson-3.m4a", text: "B — BOX the key words: the words that tell you what to DO. 'Into each bin' and 'How many bins' — that means GROUPING. Fill one bin to four, then start the next, and count the bins." },
+      { file: "lesson-4.m4a", text: "E — ELIMINATE anything the question never asks about. Seven crash helmets? The question is about bins of ducks. Crumple it. Then EVALUATE: what's missing — how many in EACH, how many BINS, or the TOTAL? Bins. So the sum is twenty-four divided by four." },
+      { file: "lesson-5.m4a", text: "S — SOLVE: twenty-four divided by four is six. Then CHECK by going backwards: six bins times four ducks is twenty-four. That's the number we started with, so it's right. Only NOW do the ducks drop. Watch." },
+      { file: "lesson-6.m4a", text: "Your turn, Lab Chief. The card lights up each letter as you go, and there's a star for every step you get right first time. Sometimes there is NOTHING to cross out — say so. Ready?" },
+    ];
+    const canMp4 = window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("audio/mp4");
+    if (!canMp4) document.getElementById("warn").style.display = "block";
+    let stream = null;
+    async function getStream() { if (!stream) stream = await navigator.mediaDevices.getUserMedia({ audio: true }); return stream; }
+    const cardsEl = document.getElementById("cards");
+    LINES.forEach((line, i) => {
+      const card = document.createElement("div"); card.className = "card";
+      card.innerHTML = `<div class="num">step ${i + 1} of 7 — saves as ${line.file}</div><div class="line">“${line.text}”</div>
+        <div class="row"><button class="rec" data-i="${i}">● Record</button><span class="status">not recorded</span><audio controls></audio><a class="dl" download="${line.file}">⬇ Download</a></div>`;
+      cardsEl.appendChild(card);
+    });
+    let activeRecorder = null, activeButton = null;
+    document.querySelectorAll(".rec").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (activeRecorder && activeRecorder.state === "recording") { activeRecorder.stop(); if (activeButton === btn) return; }
+        let s; try { s = await getStream(); } catch (e) { alert("Microphone permission is needed — allow it and try again."); return; }
+        const card = btn.closest(".card"), status = card.querySelector(".status"), audio = card.querySelector("audio"), dl = card.querySelector(".dl");
+        const mime = canMp4 ? "audio/mp4" : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
+        const rec = mime ? new MediaRecorder(s, { mimeType: mime }) : new MediaRecorder(s);
+        const chunks = [];
+        rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+        rec.onstop = () => {
+          const blob = new Blob(chunks, { type: rec.mimeType || "audio/mp4" }); const url = URL.createObjectURL(blob);
+          audio.src = url; audio.style.display = "inline-block"; dl.href = url; dl.style.display = "inline-block";
+          status.textContent = `recorded (${(blob.size / 1024).toFixed(0)} KB)`; btn.textContent = "● Re-record"; btn.classList.remove("armed");
+          activeRecorder = null; activeButton = null;
+        };
+        rec.start(); activeRecorder = rec; activeButton = btn; btn.textContent = "■ Stop"; btn.classList.add("armed"); status.textContent = "recording…";
+      });
+    });
+  </script>
+</body>
+</html>

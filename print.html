@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Drop Lab — pencil practice</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: "Arial Rounded MT Bold", "Trebuchet MS", Verdana, sans-serif; background: #fff; color: #111; margin: 0; padding: 18px 22px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .sub { font-size: 13px; color: #555; margin-bottom: 14px; }
+    .card { border: 2px solid #333; border-radius: 10px; padding: 10px 14px 12px; margin-bottom: 14px; page-break-inside: avoid; }
+    .num { font-size: 12px; font-weight: bold; color: #b84f0c; letter-spacing: .06em; }
+    .prob { font-size: 17px; line-height: 1.9; margin: 4px 0 8px; }
+    .cubes { display: flex; gap: 6px; font-size: 12px; font-weight: bold; margin-bottom: 6px; }
+    .cubes span { border: 1.5px solid #333; border-radius: 4px; padding: 1px 7px; }
+    .work { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .box { border: 1.5px dashed #999; border-radius: 8px; min-height: 84px; padding: 4px 8px; font-size: 11px; color: #777; }
+    .toolbar { display: flex; gap: 10px; margin-bottom: 14px; }
+    .toolbar a, .toolbar button { font: inherit; font-size: 14px; font-weight: bold; padding: 8px 14px; border-radius: 8px; border: 2px solid #333; background: #fff; color: #111; text-decoration: none; cursor: pointer; }
+    @media print { .toolbar { display: none; } body { padding: 0; } .card { margin-bottom: 10px; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <a href="index.html">← Back to Drop Lab</a>
+    <button onclick="window.print()">🖨️ Print</button>
+    <button onclick="location.search='?tier='+tier+'&seed='+Math.floor(Math.random()*1e9)">🔀 Different six</button>
+  </div>
+  <h1>🧪 Drop Lab — pencil practice</h1>
+  <div class="sub" id="sub"></div>
+  <div id="cards"></div>
+  <script src="problems.js"></script>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const tier = Math.max(1, Math.min(4, parseInt(q.get("tier") || "1", 10)));
+    const seed = parseInt(q.get("seed") || String(Date.now() % 1e9), 10);
+    const round = DropLabProblems.makeRound(tier, seed);
+    document.getElementById("sub").textContent =
+      `Level ${tier} · do CUBES with a pencil: Circle the numbers, Underline the question, Box the key words, Eliminate extra information, Solve and check by multiplying back.`;
+    const cards = document.getElementById("cards");
+    round.forEach((p, i) => {
+      const c = document.createElement("div"); c.className = "card";
+      c.innerHTML = `<div class="num">REQUEST ${i + 1}${p.bonus ? " · bonus" : ""}</div>
+        <div class="prob">${p.text}</div>
+        <div class="cubes"><span>C</span><span>U</span><span>B</span><span>E</span><span>S</span></div>
+        <div class="work"><div class="box">working</div><div class="box">answer &nbsp; ______ &nbsp;&nbsp; check: ____ × ____ = ____</div></div>`;
+      cards.appendChild(c);
+    });
+  </script>
+</body>
+</html>
