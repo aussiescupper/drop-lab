@@ -20,14 +20,23 @@
 (function (root) {
   "use strict";
 
+  // Wobblies (the ragdoll test-dummies) are the headline act, so they are drawn
+  // most often; the rest keep the wording varied. weight = relative frequency.
   const OBJECTS = [
-    { sing: "rubber duck",  plur: "rubber ducks",  cls: "duck"   },
-    { sing: "bouncy ball",  plur: "bouncy balls",  cls: "ball"   },
-    { sing: "spring",       plur: "springs",       cls: "spring" },
-    { sing: "Wobbly",       plur: "Wobblies",      cls: "wobbly" },
-    { sing: "glow stick",   plur: "glow sticks",   cls: "glow"   },
-    { sing: "watermelon",   plur: "watermelons",   cls: "melon"  },
+    { sing: "Wobbly",       plur: "Wobblies",      cls: "wobbly", weight: 6 },
+    { sing: "rubber duck",  plur: "rubber ducks",  cls: "duck",   weight: 2 },
+    { sing: "bouncy ball",  plur: "bouncy balls",  cls: "ball",   weight: 1 },
+    { sing: "spring",       plur: "springs",       cls: "spring", weight: 1 },
+    { sing: "glow stick",   plur: "glow sticks",   cls: "glow",   weight: 1 },
+    { sing: "watermelon",   plur: "watermelons",   cls: "melon",  weight: 1 },
   ];
+  function pickObject(rng, opts) {
+    if (opts && opts.objCls) return OBJECTS.find((o) => o.cls === opts.objCls) || OBJECTS[0];
+    const total = OBJECTS.reduce((a, o) => a + o.weight, 0);
+    let x = rng() * total;
+    for (const o of OBJECTS) { x -= o.weight; if (x < 0) return o; }
+    return OBJECTS[0];
+  }
   const OTHER = ["spare crash helmets", "safety cones", "empty crates", "clipboards", "lab coats", "wobbly ladders"];
   const FRACTIONS = [
     { word: "half",    k: 2  },
@@ -142,7 +151,7 @@
     tier = Math.max(1, Math.min(4, tier | 0));
     const type = opts.type || typeFor(tier, rng);
     const nums = numbersFor(type, tier, rng, opts);
-    const obj = pick(rng, OBJECTS);
+    const obj = pickObject(rng, opts);
     const v = { N: nums.N, K: nums.K, G: nums.G, q: nums.q, plur: obj.plur, sing: obj.sing,
                 frac: nums.frac && nums.frac.word,
                 fracA: nums.frac && (nums.frac.k === 2 ? "half" : "a " + nums.frac.word) };
@@ -324,14 +333,15 @@
     },
   };
 
-  function makeRound(tier, seed) {
+  function makeRound(tier, seed, opts) {
+    opts = opts || {};
     const rng = mulberry32(seed | 0);
     const out = [];
     const keys = new Set();
     for (let i = 0; i < 6; i++) {
       const t = i === 5 ? Math.min(4, tier + 1) : tier;        // last one is a bonus from the next tier
       let p, tries = 0;
-      do { p = makeProblem(t, rng, { forceDistractor: i === 0 }); tries++; }
+      do { p = makeProblem(t, rng, { forceDistractor: i === 0, objCls: opts.objCls }); tries++; }
       while (keys.has(p.N + "/" + p.K + "/" + p.type) && tries < 30);
       keys.add(p.N + "/" + p.K + "/" + p.type);
       p.bonus = i === 5;

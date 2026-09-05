@@ -28,6 +28,7 @@ function loadStore() {
     muted: false,
     tier: 1,
     circleAll: true,               // the tutor's way: circle every number, decide later at E
+    wobbliesOnly: false,           // every request about Wobblies (the ragdolls), if he'd rather
     career: { stars: 0, rounds: 0, clean: 0 },
     best: { 1: 0, 2: 0, 3: 0, 4: 0 },
     letters: { C: [0, 0], U: [0, 0], B: [0, 0], E: [0, 0], S: [0, 0] },   // [stars, attempts] all-time
@@ -182,12 +183,12 @@ function keyCard(p) {
 /* ---------- lessons (same engine as Rail Runner: captioned steps + optional Dad voice) ---------- */
 function demoProblem() {
   const sentences = [
-    { raw: "The Drop Lab got 24 rubber ducks for today's test.", role: "setup" },
+    { raw: "The Drop Lab got 24 Wobblies for today's test.", role: "setup" },
     { raw: "The lab also has 7 spare crash helmets on the shelf.", role: "distractor" },
-    { raw: "Henry packs 4 rubber ducks [into each bin].", role: "condition" },
+    { raw: "Henry packs 4 Wobblies [into each bin].", role: "condition" },
     { raw: "[How many bins] does he fill?", role: "question" },
   ].map((s) => Object.assign({ text: s.raw.replace(/[\[\]]/g, "") }, s));
-  const p = { tier: 2, type: "GROUP", baseType: "GROUP", schema: "GROUP", obj: P.OBJECTS[0], selfIncluded: false,
+  const p = { tier: 2, type: "GROUP", baseType: "GROUP", schema: "GROUP", obj: P.OBJECTS.find((o) => o.cls === "wobbly"), selfIncluded: false,
     N: 24, K: 4, G: undefined, q: 6, r: 0, frac: null, answer: 6, slots: [24, 4], clean: false, sentences };
   p.chips = P.tokenise(p);
   p.text = sentences.map((s) => s.text).join(" ");
@@ -198,7 +199,7 @@ const LESSON = {
   title: "How Professor Bin checks a request 🧪",
   audio: "lesson",
   steps: [
-    { cap: "This is an Experiment Request. Professor Bin will NOT drop a single duck until it has been CUBES-checked — last time someone skipped the check, the lab filled with foam. Five steps, one letter each. Same card as your tutor's.",
+    { cap: "This is an Experiment Request. Professor Bin will NOT drop a single Wobbly until it has been CUBES-checked — last time someone skipped the check, the Wobblies bounced all over the lab. Five steps, one letter each. Same card as your tutor's.",
       mark: () => {} },
     { cap: "C — CIRCLE THE NUMBERS. All of them, even the ones you might not need. Deciding what matters comes later — for now, just catch every number.",
       mark: (D) => { D.circled = new Set(D.p.chips.filter((c) => c.isNumber).map((c) => c.id)); D.lit = "C"; } },
@@ -206,9 +207,9 @@ const LESSON = {
       mark: (D) => { D.underlined = D.p.sentences.findIndex((s) => s.role === "question"); D.lit = "U"; } },
     { cap: "B — BOX THE KEY WORDS: the words that tell you what to DO. 'Into each bin' and 'How many bins' — that means GROUPING: fill one bin to 4, then start the next, and count the bins.",
       mark: (D) => { D.boxed = new Set(D.p.chips.filter((c) => c.phrase).map((c) => c.id)); D.lit = "B"; } },
-    { cap: "E — ELIMINATE anything the question never asks about. 7 crash helmets? The question is about bins of ducks. Crumple it. Then EVALUATE: what's missing — how many in EACH, how many BINS, or the TOTAL? Bins. So the sum is 24 ÷ 4.",
+    { cap: "E — ELIMINATE anything the question never asks about. 7 crash helmets? The question is about bins of Wobblies. Crumple it. Then EVALUATE: what's missing — how many in EACH, how many BINS, or the TOTAL? Bins. So the sum is 24 ÷ 4.",
       mark: (D) => { D.crumpled = new Set([1]); D.plan = "24 ÷ 4 = ?"; D.lit = "E"; } },
-    { cap: "S — SOLVE: 24 ÷ 4 = 6. Then CHECK by going backwards: 6 bins × 4 ducks = 24. That's the number we started with, so it's right. Only NOW do the ducks drop — watch.",
+    { cap: "S — SOLVE: 24 ÷ 4 = 6. Then CHECK by going backwards: 6 bins × 4 Wobblies = 24. That's the number we started with, so it's right. Only NOW do the Wobblies drop — watch.",
       mark: (D) => { D.plan = "24 ÷ 4 = 6   check: 6 × 4 = 24 ✓"; D.lit = "S"; D.runDrop = true; } },
     { cap: "Your turn, Lab Chief. The card lights up each letter as you go, and a star for every step you get right first time. Sometimes there is NOTHING to cross out — say so. Ready?",
       mark: (D) => { D.lit = null; } },
@@ -334,7 +335,9 @@ function renderHome() {
   print.href = `print.html?tier=${store.tier}`;
   const circle = el("button", "pill", store.circleAll ? "⚙️ Circling EVERY number (tutor's way)" : "⚙️ Circling only the numbers you need");
   circle.addEventListener("click", () => { store.circleAll = !store.circleAll; saveStore(); sfx.tap(); renderHome(); });
-  pills.append(lesson, print, circle);
+  const wob = el("button", "pill", store.wobbliesOnly ? "🤸 Wobblies only — ON" : "🤸 Wobblies only — off (mixed objects)");
+  wob.addEventListener("click", () => { store.wobbliesOnly = !store.wobbliesOnly; saveStore(); sfx.tap(); renderHome(); });
+  pills.append(lesson, print, circle, wob);
   home.appendChild(pills);
 
   const twRow = el("div", "pill-row");
@@ -367,7 +370,7 @@ function renderHome() {
 function startRound(tier) {
   if (!store.introSeen) { renderLesson(true); return; }
   const seed = (Date.now() ^ (Math.random() * 1e9)) | 0;
-  G = { tier, seed, problems: P.makeRound(tier, seed), idx: 0, stars: 0, letters: { C: 0, U: 0, B: 0, E: 0, S: 0 }, clean: 0 };
+  G = { tier, seed, problems: P.makeRound(tier, seed, { objCls: store.wobbliesOnly ? "wobbly" : null }), idx: 0, stars: 0, letters: { C: 0, U: 0, B: 0, E: 0, S: 0 }, clean: 0 };
   newProblemState();
   renderProblem();
 }
@@ -811,6 +814,9 @@ function runDrop(p, stageWrap, done) {
   const chute = stage.querySelector(".chute");
   const plan = dropPlan(p);
   const grow = p.type === "GROUP" || p.type === "GROUP_REM";
+  // few per bin = big floppy Wobblies you can see; ten per bin = a heap that still fits
+  const perBin = (p.type === "SHARE" || p.type === "SHARE_REM" || p.type === "FRACTION") ? p.q : p.K;
+  stage.style.setProperty("--s", perBin <= 3 ? 1.6 : perBin <= 5 ? 1.45 : perBin <= 8 ? 1.15 : 1);   // 1.6 keeps two per row
   const stagger = plan.length > 30 ? 55 : plan.length > 16 ? 80 : 110;
   let i = 0;
   const step = () => {
@@ -831,7 +837,10 @@ function runDrop(p, stageWrap, done) {
   };
   const settle = (binEl) => {
     const pile = binEl.querySelector(".pile");
-    pile.appendChild(el("div", "obj " + p.obj.cls + " land"));
+    const o = el("div", "obj " + p.obj.cls + " land");
+    o.style.setProperty("--tilt", (Math.round(Math.random() * 120) - 60) + "deg");
+    if (binEl === bench) o.style.setProperty("--tilt", (Math.random() < 0.5 ? 82 : -82) + "deg");   // flat out on the bench
+    pile.appendChild(o);
     binEl.querySelector(".count").textContent = String(pile.children.length);
     if (pile.children.length % 3 === 0) sfx.land();
   };
