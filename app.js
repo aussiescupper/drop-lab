@@ -18,7 +18,7 @@ const STEP_INFO = {
   B:  { letter: "B", title: "Box the key words",     instr: "Tap the words that tell you what to DO with the numbers.", done: "Done boxing" },
   E:  { letter: "E", title: "Eliminate extra info",  instr: "Tap any sentence the question doesn't need. It gets crumpled.", done: "Done crossing out" },
   E2: { letter: "E", title: "Evaluate: what steps?", instr: "What is the question asking for? Then build the sum.",   done: "That's my plan" },
-  S:  { letter: "S", title: "Solve and check",       instr: "Type the answer, then CHECK it by multiplying back. Only then do we drop.", done: "Run the experiment" },
+  S:  { letter: "S", title: "Solve and check",       instr: (p) => `Type the answer, then CHECK it by ${p.type === "TOTAL" ? "dividing" : "multiplying"} back. Only then do we drop.`, done: "Run the experiment" },
 };
 
 /* ---------- store ---------- */
@@ -458,7 +458,7 @@ function renderProblem() {
   // instruction
   const info = STEP_INFO[PS.step];
   const instr = el("div", "card instr-card");
-  if (info) instr.innerHTML = `<div class="kicker">${info.letter} · ${info.title}</div><div class="instr">${info.instr}</div>`;
+  if (info) instr.innerHTML = `<div class="kicker">${info.letter} · ${info.title}</div><div class="instr">${typeof info.instr === "function" ? info.instr(p) : info.instr}</div>`;
   else instr.innerHTML = `<div class="kicker">✓ Verified</div><div class="instr">Professor Bin approves. On to the next request.</div>`;
   game.appendChild(instr);
 
@@ -699,12 +699,12 @@ function buildPad() {
       if (k === "⌫") { if (cur !== undefined) { const s = String(cur).slice(0, -1); if (s) PS.fields[PS.active] = +s; else delete PS.fields[PS.active]; } }
       else if (k === "next") {
         const order = fieldsFor(curP()).map((f) => f.k).concat(["prod"]);
-        const i = order.indexOf(PS.active); PS.active = order[Math.min(order.length - 1, i + 1)];
+        const i = order.indexOf(PS.active); PS.active = order[(i + 1) % order.length];
       } else {
         const s = (cur === undefined ? "" : String(cur)) + k;
         if (s.length <= 3) PS.fields[PS.active] = +s;
-        // auto-advance to the next empty field after a first digit on a one-digit-typical field
       }
+      if (PS.active !== "prod" && k !== "next") delete PS.fields.prod;   // the check follows the answer: a stale product must not survive an edit
       sfx.tap(); PS.msg = ""; renderProblem();
     });
     pad.appendChild(b);
@@ -715,8 +715,15 @@ function onRun(p) {
   const ans = PS.fields.ans, rem = PS.fields.rem, prod = PS.fields.prod;
   const hasRem = p.type.endsWith("_REM");
   attempt("S");
+  const truth = p.type === "TOTAL" ? p.G : p.N;
+  // 0. a TOTAL answer that will not split into K equal bins: there is no product to type, his check has already caught it
+  if (p.type === "TOTAL" && ans % p.K !== 0) {
+    PS.selfCaught = true;
+    PS.msg = `Your check caught it! ${ans} doesn't split into ${p.K} equal bins, so ${ans} can't be the total. Fix the answer.`;
+    PS.msgKind = "bad"; PS.fields = {}; PS.active = "ans"; sfx.miss(); renderProblem(); return;
+  }
   // 1. his arithmetic in the check must be right
-  const hisCheck = p.type === "TOTAL" ? (ans % p.K === 0 ? ans / p.K : NaN) : ans * p.K + (hasRem ? (rem || 0) : 0);
+  const hisCheck = p.type === "TOTAL" ? ans / p.K : ans * p.K + (hasRem ? (rem || 0) : 0);
   if (prod !== hisCheck) {
     PS.first.S = false; PS.misses.S += 1;
     PS.msg = p.type === "TOTAL"
@@ -725,15 +732,19 @@ function onRun(p) {
     PS.msgKind = "bad"; delete PS.fields.prod; PS.active = "prod"; sfx.miss(); renderProblem(); return;
   }
   // 2. the check must land on the number the lab started with
-  const truth = p.type === "TOTAL" ? p.G : p.N;
   const solved = P.verify.solve(p, ans, rem).ok;
-  if (prod !== truth || !solved) {
-    const why = hasRem && rem >= p.K ? `${rem} left over is enough to fill another bin — share them out.` :
-      p.type === "TOTAL" ? `Your check caught it! ${ans} ÷ ${p.K} = ${prod}, but there are ${p.G} bins.` :
-      `Your check caught it! ${ans} × ${p.K}${hasRem ? " + " + rem : ""} = ${prod}, but the lab has ${p.N}. Fix the answer.`;
-    PS.selfCaught = true;                 // his own check found the slip: the star survives if he fixes it
-    PS.msg = why; PS.msgKind = "bad";
-    PS.fields = {}; PS.active = "ans"; sfx.miss(); renderProblem(); return;
+  if (prod !== truth) {
+    PS.selfCaught = true;                 // HIS check disagreed with the lab: the star survives if he fixes it
+    PS.msg = p.type === "TOTAL"
+      ? `Your check caught it! ${ans} ÷ ${p.K} = ${prod}, but there are ${p.G} bins. Fix the answer.`
+      : `Your check caught it! ${ans} × ${p.K}${hasRem ? " + " + rem : ""} = ${prod}, but the lab has ${p.N}. Fix the answer.`;
+    PS.msgKind = "bad"; PS.fields = {}; PS.active = "ans"; sfx.miss(); renderProblem(); return;
+  }
+  if (!solved) {
+    // the check added up but the answer is still wrong (leftovers that would fill another bin): the app caught it, not him
+    PS.first.S = false; PS.misses.S += 1;
+    PS.msg = `${rem} left over is enough to fill another bin. Share those out too.`;
+    PS.msgKind = "bad"; PS.fields = {}; PS.active = "ans"; sfx.miss(); renderProblem(); return;
   }
   // 3. correct, and verified by him — now, and only now, the drop
   if (PS.first.S || PS.selfCaught) award("S");
@@ -741,7 +752,9 @@ function onRun(p) {
   PS.step = "DONE";
   renderProblem();
   const stageWrap = document.getElementById("stage-wrap");
+  const myG = G;
   setTimeout(() => runDrop(p, stageWrap, () => {
+    if (G !== myG || !stageWrap.isConnected) return;   // he tapped End mid-drop
     const stamp = el("div", "stamp", "VERIFIED");
     stageWrap.appendChild(stamp);
     const fact = document.getElementById("fact");
@@ -794,6 +807,18 @@ function makeBin(i) {
   b.appendChild(el("div", "count", "0"));
   return b;
 }
+/* an object for the stage. A Wobbly is a real figure — head, body, two arms,
+   two legs — so its limbs can flail on the way down and settle where they land. */
+function makeObj(cls, extra) {
+  const o = el("div", "obj " + cls + (extra ? " " + extra : ""));
+  if (cls === "wobbly") {
+    for (const part of ["w-head", "w-body", "w-arm l", "w-arm r", "w-leg l", "w-leg r"]) o.appendChild(el("span", part));
+    const rnd = (a, b) => Math.round(a + Math.random() * (b - a));
+    o.style.setProperty("--al", rnd(-95, -15) + "deg"); o.style.setProperty("--ar", rnd(15, 95) + "deg");
+    o.style.setProperty("--ll", rnd(-55, -5) + "deg");  o.style.setProperty("--lr", rnd(5, 55) + "deg");
+  }
+  return o;
+}
 function dropPlan(p) {
   const plan = [];
   const full = p.q * p.K;                         // objects that fit fairly
@@ -816,10 +841,14 @@ function runDrop(p, stageWrap, done) {
   const grow = p.type === "GROUP" || p.type === "GROUP_REM";
   // few per bin = big floppy Wobblies you can see; ten per bin = a heap that still fits
   const perBin = (p.type === "SHARE" || p.type === "SHARE_REM" || p.type === "FRACTION") ? p.q : p.K;
-  stage.style.setProperty("--s", perBin <= 3 ? 1.6 : perBin <= 5 ? 1.45 : perBin <= 8 ? 1.15 : 1);   // 1.6 keeps two per row
+  const totalBins = grow ? p.q : binCount(p);
+  const many = totalBins >= 8;                     // narrow bins so 8-10 fit on one row
+  bins.classList.toggle("many", many);
+  stage.style.setProperty("--s", many ? 0.8 : perBin <= 3 ? 1.6 : perBin <= 5 ? 1.35 : perBin <= 8 ? 1.1 : 1);
   const stagger = plan.length > 30 ? 55 : plan.length > 16 ? 80 : 110;
   let i = 0;
   const step = () => {
+    if (!stage.isConnected) return;                  // the round ended under us
     // backgrounded mid-drop (timers clamp to a second each): finish the count now
     if (document.hidden) { while (i < plan.length) { placeOne(plan[i]); i += 1; } finish(); return; }
     if (i >= plan.length) { finish(); return; }
@@ -837,7 +866,7 @@ function runDrop(p, stageWrap, done) {
   };
   const settle = (binEl) => {
     const pile = binEl.querySelector(".pile");
-    const o = el("div", "obj " + p.obj.cls + " land");
+    const o = makeObj(p.obj.cls, "land");
     o.style.setProperty("--tilt", (Math.round(Math.random() * 120) - 60) + "deg");
     if (binEl === bench) o.style.setProperty("--tilt", (Math.random() < 0.5 ? 82 : -82) + "deg");   // flat out on the bench
     pile.appendChild(o);
@@ -853,7 +882,7 @@ function runDrop(p, stageWrap, done) {
 }
 function flyObject(stage, from, to, cls, onLand) {
   const sr = stage.getBoundingClientRect(), fr = from.getBoundingClientRect(), tr = to.getBoundingClientRect();
-  const o = el("div", "obj " + cls + " flyer");
+  const o = makeObj(cls, "flyer");
   const x0 = fr.left - sr.left + fr.width / 2 - 8, y0 = fr.top - sr.top + fr.height - 6;
   const x1 = tr.left - sr.left + tr.width / 2 - 8 + (Math.random() * 16 - 8), y1 = tr.top - sr.top + tr.height * 0.55;
   o.style.left = x0 + "px"; o.style.top = y0 + "px";
@@ -869,9 +898,9 @@ function flyObject(stage, from, to, cls, onLand) {
     { transform: "translate(0,0) rotate(0deg)" },
     { transform: `translate(${dx * 0.5}px, ${dy * 0.35}px) rotate(${dx > 0 ? 90 : -90}deg)`, offset: 0.5 },
     { transform: `translate(${dx}px, ${dy}px) rotate(${dx > 0 ? 180 : -180}deg)` },
-  ], { duration: 380, easing: "cubic-bezier(0.3, 0, 0.7, 1)" });
+  ], { duration: cls === "wobbly" ? 540 : 380, easing: "cubic-bezier(0.3, 0, 0.7, 1)" });   // a ragdoll gets time to flail
   anim.onfinish = land;
-  setTimeout(land, 700);
+  setTimeout(land, 900);
 }
 
 /* ---------- round summary ---------- */

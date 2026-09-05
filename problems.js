@@ -62,6 +62,12 @@
   /* ---------- sentence templates ----------
      [square brackets] mark a must-phrase: boxing any word of it counts at B.
      {N} {K} {G} {q} {plur} {sing} {other} {d} {frac} are filled in. */
+  // TOTAL problems get a setup with NO number in it, otherwise the setup states the answer
+  const SETUP_TOTAL = [
+    "Professor Bin is loading the crate for today's drop test.",
+    "The Drop Lab is packing {plur} for the next drop.",
+    "Henry is getting the {plur} ready on the loading dock.",
+  ];
   const SETUP = [
     "The Drop Lab got {N} {plur} for today's drop test.",
     "Professor Bin tipped {N} {plur} into the big crate.",
@@ -157,11 +163,11 @@
                 fracA: nums.frac && (nums.frac.k === 2 ? "half" : "a " + nums.frac.word) };
 
     // the 'himself and 3 friends' trick — divisor is one more than the number printed
-    const selfIncluded = type === "SHARE" && tier >= 3 && rng() < 0.18;
+    const selfIncluded = type === "SHARE" && tier >= 3 && nums.K >= 3 && rng() < 0.18;
     if (selfIncluded) v.K1 = nums.K - 1;
 
     const baseType = type.replace("_REM", "");
-    const setup = fill(pick(rng, SETUP), v);
+    const setup = fill(pick(rng, type === "TOTAL" ? SETUP_TOTAL : SETUP), v);
     const cond = selfIncluded ? fill(SELF_COND, v) : fill(pick(rng, COND[baseType]), v);
     const question = selfIncluded ? fill(SELF_Q, v) : fill(pick(rng, QUESTION[type]), v);
 
@@ -184,7 +190,7 @@
           for (let k = 0; k < 40; k++) {
             d = dd.d(rng);
             // never a number that could pass for the answer, and never one that divides N evenly
-            if (!forbidden.has(d) && (d < 2 || nums.N % d !== 0)) break;
+            if (!forbidden.has(d) && (d < 2 || nums.N % d !== 0) && !(dd.id === "D7" && d >= nums.N)) break;
             d = null;
           }
           if (d === null) continue;
@@ -200,8 +206,10 @@
     const statements = [setup, cond];
     const withD = statements.slice();
     for (const d of distractors) withD.splice(R(rng, 1, withD.length), 0, d);
-    // never let the divisor sentence precede the total in tier 1; from tier 2 sometimes
-    if (tier >= 2 && rng() < 0.3) {
+    // from tier 2 the condition sometimes comes before the total, but only a
+    // sentence that stands on its own may open a request ("He shares them..." may not)
+    const standalone = !/^(He|They)\b/.test(cond) && !/\bthem\b/.test(cond) && !selfIncluded;
+    if (tier >= 2 && standalone && rng() < 0.3) {
       const i = withD.indexOf(setup), j = withD.indexOf(cond);
       if (i < j) { withD[i] = cond; withD[j] = setup; }
     }
@@ -294,7 +302,8 @@
         const words = p.chips.filter((c) => c.phrase === missingPhrase).map((c) => c.text).join(" ");
         return { ok: false, msg: "There's a key phrase you haven't boxed yet — the words that tell you what to DO.", hint: words };
       }
-      if (got.size > phrases.size + 3) return { ok: false, msg: "Keep the boxes for the words that tell you what to DO." };
+      const phraseWords = p.chips.filter((c) => c.phrase && c.role !== "distractor").length;
+      if (got.size > phraseWords + 3) return { ok: false, msg: "Keep the boxes for the words that tell you what to DO." };
       return { ok: true };
     },
     eliminate(p, crumpled) {

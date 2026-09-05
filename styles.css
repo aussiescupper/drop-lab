@@ -122,9 +122,9 @@ a { color: inherit; text-decoration: none; }
   box-shadow: var(--shadow), inset 0 12px 0 #d9c28a; border-top: 12px solid #b8965a;
   display: flex; flex-direction: column; gap: 8px;
 }
-.sent { position: relative; line-height: 2.1; font-size: clamp(19px, 2.9vh, 24px); border-radius: 8px; padding: 2px 6px; }
+.sent { position: relative; line-height: 2.25; font-size: clamp(19px, 2.9vh, 24px); border-radius: 8px; padding: 2px 6px; }
 .sent-inner { display: inline; }
-.chip { display: inline-block; padding: 0 3px; border-radius: 6px; line-height: 1.45; position: relative; }
+.chip { display: inline-block; padding: 2px 7px; margin: 0 1px; min-width: 1.75em; text-align: center; border-radius: 6px; line-height: 1.45; position: relative; }
 /* C: a hand-drawn ring */
 .chip.circled { box-shadow: 0 0 0 3px var(--c-red); border-radius: 46% / 60%; padding: 0 6px; animation: ring .25s ease-out; }
 @keyframes ring { from { box-shadow: 0 0 0 0 var(--c-red); } to { box-shadow: 0 0 0 3px var(--c-red); } }
@@ -194,10 +194,12 @@ a { color: inherit; text-decoration: none; }
 .chute { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 60px; height: 34px; background: #7d8a98; border-radius: 0 0 14px 14px; box-shadow: inset 0 -6px 0 #5b6774; }
 .chute::before { content: ""; position: absolute; top: -8px; left: -16px; right: -16px; height: 12px; background: #9aa7b5; border-radius: 6px; }
 .bins { position: absolute; left: 12px; right: 108px; bottom: 10px; display: flex; gap: 8px; align-items: flex-end; justify-content: center; flex-wrap: wrap; }
-.bin { width: 62px; height: 104px; position: relative; background: #d8dee5; border: 3px solid #8a96a3; border-top: none; border-radius: 0 0 10px 10px; box-shadow: inset 0 -8px 0 #b8c2cc; }
+.bin { width: 66px; height: 104px; position: relative; background: #d8dee5; border: 3px solid #8a96a3; border-top: none; border-radius: 0 0 10px 10px; box-shadow: inset 0 -8px 0 #b8c2cc; }
 .bin::before { content: ""; position: absolute; top: -6px; left: -6px; right: -6px; height: 8px; background: #8a96a3; border-radius: 4px; }
-.bin .pile { position: absolute; left: 3px; right: 3px; bottom: 3px; display: flex; flex-wrap: wrap-reverse; gap: .1em; align-content: flex-start; font-size: calc(20px * var(--s)); }
+.bin .pile { position: absolute; left: 3px; right: 3px; bottom: 3px; display: flex; flex-wrap: wrap-reverse; gap: 0; align-content: flex-start; font-size: calc(20px * var(--s)); }
 .bin .count, .bench .count { position: absolute; bottom: -22px; left: 0; right: 0; text-align: center; font-weight: bold; font-size: 15px; color: #ffd23f; }
+.bins.many { gap: 5px; }
+.bins.many .bin { width: 52px; }
 .bin.slide-in { animation: slidein .3s ease-out; }
 @keyframes slidein { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 .bin.lit { box-shadow: 0 0 0 4px #ffd23f, inset 0 -8px 0 #b8c2cc; background: #fff2b3; }
@@ -213,29 +215,46 @@ a { color: inherit; text-decoration: none; }
 .obj.duck { background: #ffd23f; } .obj.duck::after { content: ""; position: absolute; width: .35em; height: .2em; background: var(--orange); border-radius: .1em; top: .45em; left: .25em; }
 .obj.ball { background: #e74c3c; border-radius: 50%; }
 .obj.spring { background: #95a5a6; border-radius: .15em; background-image: repeating-linear-gradient(0deg, transparent 0 .15em, rgba(0,0,0,.25) .15em .2em); } .obj.spring::before { display: none; }
-/* the Wobbly: a little ragdoll test-dummy — head with a face, blue shirt, two legs.
-   It tumbles in flight and flops into the bin at its own angle (--tilt). */
-.obj.wobbly { width: .7em; height: 1.1em; border-radius: 0; background: none; transform-origin: 50% 60%; }
-.obj.wobbly::before {
-  content: ""; position: absolute; top: 0; left: .1em; width: .5em; height: .5em; border-radius: 50%;
+/* the Wobbly: a little ragdoll test-dummy built from parts — head with a face,
+   blue shirt, two arms, two legs. Everything is in em so the stage can scale it.
+   In flight (.flyer) every limb flails on its own clock; on landing (.land) the
+   whole body flops to --tilt and each limb settles to its own rest angle. */
+.obj.wobbly { width: .7em; height: 1.1em; border-radius: 0; background: none; transform-origin: 50% 60%; overflow: visible; }
+.obj.wobbly::before { display: none; }
+.obj.wobbly span { position: absolute; display: block; }
+.w-head {
+  top: 0; left: .1em; width: .5em; height: .5em; border-radius: 50%; transform-origin: 50% 100%;
   background:
-    radial-gradient(circle at 34% 45%, #16202b 1.1px, transparent 1.4px),
-    radial-gradient(circle at 66% 45%, #16202b 1.1px, transparent 1.4px),
-    radial-gradient(circle at 50% 72%, #b5533c 1.4px, transparent 1.7px),
+    radial-gradient(circle at 34% 45%, #16202b .055em, transparent .07em),
+    radial-gradient(circle at 66% 45%, #16202b .055em, transparent .07em),
+    radial-gradient(circle at 50% 72%, #b5533c .07em, transparent .085em),
     #f5cba7;
-  box-shadow: inset -1px -1px 0 rgba(0,0,0,.14);
+  box-shadow: inset -.05em -.05em 0 rgba(0,0,0,.14);
 }
-.obj.wobbly::after {
-  content: ""; position: absolute; top: .5em; left: .1em; width: .5em; height: .6em;
-  background:
-    linear-gradient(#3b82f6, #2563eb) top / 100% .3em no-repeat,
-    linear-gradient(90deg, #f5cba7 0 .15em, transparent .15em .35em, #f5cba7 .35em .5em) bottom / 100% .3em no-repeat,
-    linear-gradient(90deg, #f5cba7 0 .1em, transparent .1em .4em, #f5cba7 .4em) top .05em left 0 / 100% .25em no-repeat;
-  border-radius: .15em .15em .05em .05em;
-}
+.w-body { top: .46em; left: .17em; width: .36em; height: .42em; background: linear-gradient(#3b82f6, #2563eb); border-radius: .08em .08em .04em .04em; }
+.w-arm { top: .5em; width: .34em; height: .12em; background: #f5cba7; border-radius: .06em; }
+.w-arm.l { left: -.14em; transform-origin: 100% 50%; transform: rotate(var(--al, -30deg)); }
+.w-arm.r { right: -.14em; transform-origin: 0 50%;   transform: rotate(var(--ar, 30deg)); }
+.w-leg { top: .84em; width: .13em; height: .36em; background: #f5cba7; border-radius: .05em; transform-origin: 50% 0; }
+.w-leg.l { left: .19em; transform: rotate(var(--ll, -12deg)); }
+.w-leg.r { left: .38em; transform: rotate(var(--lr, 12deg)); }
+/* falling: arms, legs and head each on their own beat, so it reads as a flailing tumble */
+.obj.flyer.wobbly .w-arm.l { animation: flailL .28s ease-in-out infinite alternate; }
+.obj.flyer.wobbly .w-arm.r { animation: flailR .31s ease-in-out infinite alternate; }
+.obj.flyer.wobbly .w-leg.l { animation: kickL .26s ease-in-out infinite alternate; }
+.obj.flyer.wobbly .w-leg.r { animation: kickR .30s ease-in-out infinite alternate; }
+.obj.flyer.wobbly .w-head  { animation: bobble .24s ease-in-out infinite alternate; }
+@keyframes flailL { from { transform: rotate(-100deg); } to { transform: rotate(75deg); } }
+@keyframes flailR { from { transform: rotate(100deg); }  to { transform: rotate(-75deg); } }
+@keyframes kickL  { from { transform: rotate(-65deg); }  to { transform: rotate(50deg); } }
+@keyframes kickR  { from { transform: rotate(65deg); }   to { transform: rotate(-50deg); } }
+@keyframes bobble { from { transform: rotate(-30deg); }  to { transform: rotate(30deg); } }
+/* landed: the body flops, and each limb swings from straight to its own rest angle with a little overshoot */
 .obj.wobbly.land { animation: flop .55s cubic-bezier(.3, 1.4, .5, 1) forwards; }
+.obj.wobbly.land span { animation: settle .5s cubic-bezier(.3, 1.7, .5, 1); }
 @keyframes flop { 0% { transform: scale(1.2, .8) rotate(0); } 55% { transform: scale(.9, 1.1) rotate(calc(var(--tilt, 0deg) * 1.15)); } 100% { transform: rotate(var(--tilt, 0deg)); } }
-.bin .pile .obj.wobbly, .bench .pile .obj.wobbly { margin: .05em .1em; }
+@keyframes settle { from { transform: rotate(0deg); } }
+.bin .pile .obj, .bench .pile .obj { margin: 1px; }
 .obj.glow { background: #7CFC00; width: .3em; height: .9em; border-radius: .15em; box-shadow: 0 0 .3em #7CFC00; } .obj.glow::before { display: none; }
 .obj.melon { background: #2e8b57; background-image: repeating-linear-gradient(90deg, transparent 0 .15em, rgba(0,0,0,.25) .15em .2em); } .obj.melon::before { display: none; }
 .stamp {
@@ -265,7 +284,7 @@ a { color: inherit; text-decoration: none; }
 /* ---------- landscape ---------- */
 @media (orientation: landscape) and (max-height: 860px) {
   .sent { font-size: clamp(17px, 2.6vh, 21px); line-height: 1.9; }
-  .stage { height: 190px; }
-  .bin { height: 90px; }
+  .stage { height: 196px; }
+  .bin { height: 96px; }
   .card { padding: 8px 16px; }
 }

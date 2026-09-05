@@ -13,6 +13,7 @@ const ASSETS = [
   "app.js",
   "problems.js",
   "version.js",
+  "print.html",
   "manifest.webmanifest",
   "icons/icon-192.png",
   "icons/icon-512.png",
@@ -60,7 +61,7 @@ self.addEventListener("fetch", (event) => {
       fetch(req)
         .then((res) => putInCache(req, res))
         .catch(() =>
-          caches.match(req).then((cached) => {
+          caches.match(req, { ignoreSearch: true }).then((cached) => {   // print.html?tier=2 → the cached print.html
             if (cached) return cached;
             if (req.mode === "navigate") return caches.match(new URL("index.html", SCOPE).toString());
             return new Response("", { status: 504, statusText: "offline" });

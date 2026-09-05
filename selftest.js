@@ -39,6 +39,15 @@ for (let seed = 1; seed <= 600; seed++) {
         const want = p.selfIncluded && s === p.K ? p.K - 1 : s;
         if (!needed.includes(want)) fail(`slot value ${want} not among needed numbers ${JSON.stringify(needed)}`);
       }
+      // a TOTAL request must never state its own answer
+      if (p.type === "TOTAL" && needed.includes(p.N)) fail(`TOTAL problem prints its own answer N=${p.N}`);
+      // never open on a pronoun with nothing to refer to; never "1 friends"; a subset must be smaller than the lab has
+      if (/^(He|They)\b/.test(p.sentences[0].text)) fail("opens on an antecedent-less pronoun");
+      if (/\b1 friends\b/.test(p.text)) fail("'1 friends'");
+      for (const s of p.sentences) { const m = s.role === "distractor" && s.text.match(/^(\d+) of the/); if (m && +m[1] >= p.N) fail(`subset ${m[1]} of ${p.N}`); }
+      // boxing EVERY word of every must-phrase (what the lesson models) must pass B
+      const allPhraseWords = p.chips.filter((c) => c.phrase && c.role !== "distractor").map((c) => c.id);
+      if (!P.verify.box(p, allPhraseWords).ok) fail("box verifier rejects boxing whole phrases");
       // every distractor number is unusable: not N/K/q/r/G and does not divide N
       for (const c of p.chips) {
         if (c.numberRole === "distractor" && c.value !== null) {
