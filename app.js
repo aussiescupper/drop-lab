@@ -12,14 +12,6 @@
 const P = self.DropLabProblems;
 const ROUND_LEN = 6;
 const LETTERS = ["C", "U", "B", "E", "S"];
-const STEP_INFO = {
-  C:  { letter: "C", title: "Circle the numbers",   instr: "Tap every number in the request.",                         done: "Done circling" },
-  U:  { letter: "U", title: "Underline the question", instr: "Tap the sentence that ASKS something.",                  done: "Done underlining" },
-  B:  { letter: "B", title: "Box the key words",     instr: "Tap the words that tell you what to DO with the numbers.", done: "Done boxing" },
-  E:  { letter: "E", title: "Eliminate extra info",  instr: "Tap any sentence the question doesn't need. It gets crumpled.", done: "Done crossing out" },
-  E2: { letter: "E", title: "Evaluate: what steps?", instr: "What is the question asking for? Then build the sum.",   done: "That's my plan" },
-  S:  { letter: "S", title: "Solve and check",       instr: (p) => `Type the answer, then CHECK it by ${p.type === "TOTAL" ? "dividing" : "multiplying"} back. Only then do we drop.`, done: "Run the experiment" },
-};
 
 /* ---------- store ---------- */
 const STORE_KEY = "droplab.v1";
@@ -27,11 +19,10 @@ function loadStore() {
   const base = {
     muted: false,
     tier: 1,
-    circleAll: true,               // the tutor's way: circle every number, decide later at E
+    circleAll: true,               // the hint circles every number (the tutor's way), or only the needed ones
     wobbliesOnly: false,           // every request about Wobblies (the ragdolls), if he'd rather
     career: { stars: 0, rounds: 0, clean: 0 },
     best: { 1: 0, 2: 0, 3: 0, 4: 0 },
-    letters: { C: [0, 0], U: [0, 0], B: [0, 0], E: [0, 0], S: [0, 0] },   // [stars, attempts] all-time
     introSeen: false,
   };
   try {
@@ -39,7 +30,6 @@ function loadStore() {
     return Object.assign(base, raw, {
       career: Object.assign(base.career, raw.career || {}),
       best: Object.assign(base.best, raw.best || {}),
-      letters: Object.assign(base.letters, raw.letters || {}),
     });
   } catch (e) { return base; }
 }
@@ -211,7 +201,7 @@ const LESSON = {
       mark: (D) => { D.crumpled = new Set([1]); D.plan = "24 ÷ 4 = ?"; D.lit = "E"; } },
     { cap: "S — SOLVE: 24 ÷ 4 = 6. Then CHECK by going backwards: 6 bins × 4 Wobblies = 24. That's the number we started with, so it's right. Only NOW do the Wobblies drop — watch.",
       mark: (D) => { D.plan = "24 ÷ 4 = 6   check: 6 × 4 = 24 ✓"; D.lit = "S"; D.runDrop = true; } },
-    { cap: "Your turn, Lab Chief. The card lights up each letter as you go, and a star for every step you get right first time. Sometimes there is NOTHING to cross out — say so. Ready?",
+    { cap: "Your turn, Lab Chief. Read each request, work it out, and CHECK it. Stuck? Tap the CUBES hint and Professor Bin marks the request up for you, one pair of letters at a time — but every hint costs a star. Five stars means you did the whole thing yourself. Ready?",
       mark: (D) => { D.lit = null; } },
   ],
 };
@@ -333,7 +323,7 @@ function renderHome() {
   lesson.addEventListener("click", () => { sfx.whistle(); renderLesson(false); });
   const print = el("a", "pill", "🖨️ Print 6 for pencil practice");
   print.href = `print.html?tier=${store.tier}`;
-  const circle = el("button", "pill", store.circleAll ? "⚙️ Circling EVERY number (tutor's way)" : "⚙️ Circling only the numbers you need");
+  const circle = el("button", "pill", store.circleAll ? "⚙️ Hints circle EVERY number (tutor's way)" : "⚙️ Hints circle only the numbers you need");
   circle.addEventListener("click", () => { store.circleAll = !store.circleAll; saveStore(); sfx.tap(); renderHome(); });
   const wob = el("button", "pill", store.wobbliesOnly ? "🤸 Wobblies only — ON" : "🤸 Wobblies only — off (mixed objects)");
   wob.addEventListener("click", () => { store.wobbliesOnly = !store.wobbliesOnly; saveStore(); sfx.tap(); renderHome(); });
@@ -366,30 +356,52 @@ function renderHome() {
   app.appendChild(home);
 }
 
-/* ---------- the round ---------- */
+/* ---------- the round ----------
+   He reads the request, works it out, types the answer and CHECKS it, and only
+   then do the Wobblies drop. CUBES is not a gate he taps through: it is a hint
+   he can ask for when he is stuck, and each one costs a star. */
 function startRound(tier) {
   if (!store.introSeen) { renderLesson(true); return; }
   const seed = (Date.now() ^ (Math.random() * 1e9)) | 0;
-  G = { tier, seed, problems: P.makeRound(tier, seed, { objCls: store.wobbliesOnly ? "wobbly" : null }), idx: 0, stars: 0, letters: { C: 0, U: 0, B: 0, E: 0, S: 0 }, clean: 0 };
+  G = { tier, seed, problems: P.makeRound(tier, seed, { objCls: store.wobbliesOnly ? "wobbly" : null }),
+        idx: 0, stars: 0, noHint: 0, hintsUsed: 0, clean: 0 };
   newProblemState();
   renderProblem();
 }
-let PS = null;   // per-problem state
+let PS = null;   // per-request state
 function curP() { return G.problems[G.idx]; }
 function newProblemState() {
-  PS = {
-    step: "C", circled: new Set(), underlined: null, boxed: new Set(), crumpled: new Set(),
-    schemaPick: null, slots: [{ chip: null, plus: false }, { chip: null, plus: false }], pickChip: null,
-    fields: {}, active: null, misses: { C: 0, U: 0, B: 0, E: 0, E2: 0, S: 0 },
-    first: { C: true, U: true, B: true, E: true, E2: true, S: true }, selfCaught: false,
-    stars: { C: false, U: false, B: false, E: false, S: false },
-    msg: "", msgKind: "", pulse: new Set(), pulseSent: null, keyCard: false, dropped: false,
-  };
+  PS = { step: "SOLVE", hint: 0, fields: {}, active: null, wrongRun: false, selfCaught: false,
+         msg: "", msgKind: "", stars: 0 };
 }
-function slotVal(i) {
-  const s = PS.slots[i];
-  if (s.chip === null) return null;
-  return curP().chips[s.chip].value + (s.plus ? 1 : 0);
+
+/* Each tap of the hint has Professor Bin mark the request up the way the tutor's
+   card says — the same marks he would make with a pencil. */
+const HINTS = [
+  { letters: ["C", "U"], label: "C — circle the numbers · U — underline the question" },
+  { letters: ["B", "E"], label: "B — box the key words · E — eliminate extra information" },
+  { letters: ["E"],      label: "E — evaluate: what steps do I take?" },
+];
+function hintMarks(p) {
+  const M = { circled: new Set(), underlined: null, boxed: new Set(), crumpled: new Set(), pulse: new Set(), pulseSent: null };
+  if (PS.hint >= 1) {
+    p.chips.filter((c) => c.isNumber && (store.circleAll || c.numberRole === "needed")).forEach((c) => M.circled.add(c.id));
+    M.underlined = p.sentences.findIndex((s) => s.role === "question");
+  }
+  if (PS.hint >= 2) {
+    p.chips.filter((c) => c.phrase && c.role !== "distractor").forEach((c) => M.boxed.add(c.id));
+    p.sentences.forEach((s, i) => { if (s.role === "distractor") M.crumpled.add(i); });
+  }
+  return M;
+}
+function planText(p) {
+  const what = { EACH: "how many in EACH bin", GROUP: "how many BINS", TOTAL: "the TOTAL" }[p.schema];
+  const sum = p.type === "TOTAL" ? `${p.G} × ${p.K}` : p.selfIncluded ? `${p.N} ÷ (${p.K - 1} + 1)` : `${p.N} ÷ ${p.K}`;
+  let tail = "";
+  if (p.type.endsWith("_REM")) tail = ", and whatever won't share out fairly is left over";
+  if (p.type === "FRACTION") tail = `. A ${p.frac.word} of ${p.N} means share it into ${p.K} bins and take one`;
+  if (p.selfIncluded) tail = ". He counts himself too";
+  return `Missing: ${what}. So the sum is ${sum} = ?${tail}`;
 }
 
 /* the clipboard: sentences of word chips carrying the marks. Used by the round AND the lesson. */
@@ -402,18 +414,35 @@ function buildBoard(p, M, handlers) {
       + (M.pulseSent === si ? " pulse-sent" : ""));
     sent.dataset.sid = si;
     const inner = el("span", "sent-inner");
-    p.chips.filter((c) => c.sid === si).forEach((c) => {
-      const chip = el("span", "chip"
+    // a boxed key phrase gets ONE box around the whole phrase, the way it is
+    // drawn on the tutor's card — not a box around each separate word
+    const chips = p.chips.filter((c) => c.sid === si);
+    const word = (c) => {
+      const w = el("span", "chip"
         + (M.circled.has(c.id) ? " circled" : "")
-        + (M.boxed.has(c.id) ? " boxed" : "")
         + (M.pulse && M.pulse.has(c.id) ? " pulse" : ""), c.text);
-      chip.dataset.id = c.id;
-      if (handlers) chip.addEventListener("click", (e) => { e.stopPropagation(); handlers.chip(c); });
-      inner.appendChild(chip);
+      w.dataset.id = c.id;
+      if (handlers) w.addEventListener("click", (e) => { e.stopPropagation(); handlers.chip(c); });
+      return w;
+    };
+    for (let i = 0; i < chips.length; ) {
+      const c = chips[i];
+      if (c.phrase && M.boxed.has(c.id)) {
+        const box = el("span", "phrase-box");
+        while (i < chips.length && chips[i].phrase === c.phrase && M.boxed.has(chips[i].id)) {
+          box.appendChild(word(chips[i]));
+          i += 1;
+          if (i < chips.length && chips[i].phrase === c.phrase) box.appendChild(document.createTextNode(" "));
+        }
+        inner.appendChild(box);
+      } else {
+        inner.appendChild(word(c));
+        i += 1;
+      }
       inner.appendChild(document.createTextNode(" "));
-    });
+    }
     sent.appendChild(inner);
-    const ball = el("span", "paper-ball", "🗑️ crossed out — tap to undo");
+    const ball = el("span", "paper-ball", "🗑️ crossed out");
     sent.appendChild(ball);
     if (handlers) sent.addEventListener("click", () => handlers.sentence(si));
     board.appendChild(sent);
@@ -427,7 +456,6 @@ function renderProblem() {
   const p = curP();
   const game = el("div", "game");
 
-  // top bar
   const bar = el("div", "topbar");
   const req = el("div", "tb-item"); req.innerHTML = `Request <b>${G.idx + 1}</b>/${ROUND_LEN}${p.bonus ? " <span class='bonus'>bonus</span>" : ""}`;
   const st = el("div", "tb-item"); st.innerHTML = `⭐ <b id="tb-stars">${G.stars}</b>`;
@@ -444,37 +472,37 @@ function renderProblem() {
   bar.append(req, st, quit);
   game.appendChild(bar);
 
-  // CUBES strip
+  // the card: letters light up as the hint reveals them, S when it is verified
+  const lit = new Set();
+  for (let i = 0; i < PS.hint; i++) HINTS[i].letters.forEach((L) => lit.add(L));
+  if (PS.step === "DONE") lit.add("S");
   const strip = el("div", "cubes-strip");
-  const stepLetter = STEP_INFO[PS.step] ? STEP_INFO[PS.step].letter : null;
-  const nowIdx = stepLetter ? LETTERS.indexOf(stepLetter) : LETTERS.length;
-  LETTERS.forEach((L, i) => {
-    const c = el("div", "cube " + L + (i < nowIdx ? " done" : i === nowIdx ? " now" : ""), L);
-    if (i < nowIdx) c.appendChild(el("span", "cube-star", PS.stars[L] ? "★" : "✓"));
-    strip.appendChild(c);
-  });
+  LETTERS.forEach((L) => strip.appendChild(el("div", "cube " + L + (lit.has(L) ? " now" : ""), L)));
   game.appendChild(strip);
 
-  // instruction
-  const info = STEP_INFO[PS.step];
   const instr = el("div", "card instr-card");
-  if (info) instr.innerHTML = `<div class="kicker">${info.letter} · ${info.title}</div><div class="instr">${typeof info.instr === "function" ? info.instr(p) : info.instr}</div>`;
-  else instr.innerHTML = `<div class="kicker">✓ Verified</div><div class="instr">Professor Bin approves. On to the next request.</div>`;
+  if (PS.step === "DONE") {
+    instr.innerHTML = `<div class="kicker">✓ Verified</div><div class="instr">Professor Bin approves — <b>${PS.stars} star${PS.stars === 1 ? "" : "s"}</b>${PS.hint ? ` (${PS.hint} hint${PS.hint === 1 ? "" : "s"})` : PS.wrongRun ? "" : " — no hints, first go!"}</div>`;
+  } else {
+    instr.innerHTML = `<div class="kicker">Experiment request</div><div class="instr">Work it out, type the answer, then CHECK it by ${p.type === "TOTAL" ? "dividing" : "multiplying"} back. Stuck? Tap the CUBES hint — each one costs a star.</div>`;
+  }
   game.appendChild(instr);
 
-  // the request
   const boardWrap = el("div", "board-wrap");
-  boardWrap.appendChild(buildBoard(p, PS, { chip: onChipTap, sentence: onSentenceTap }));
+  boardWrap.appendChild(buildBoard(p, hintMarks(p), null));
+  if (PS.hint >= 2 && p.clean) boardWrap.appendChild(el("div", "clean-note", "✔ Nothing to cross out this time — every sentence matters."));
+  const tools = el("div", "tool-row");
   const readBtn = el("button", "read-btn", "🔈 Read to me");
   readBtn.addEventListener("click", () => { sfx.tap(); speak(p.text); });
-  boardWrap.appendChild(readBtn);
+  const hintBtn = el("button", "hint-btn", PS.hint >= HINTS.length ? "💡 All hints shown" : `💡 CUBES hint ${PS.hint + 1} of ${HINTS.length}`);
+  hintBtn.disabled = PS.hint >= HINTS.length || PS.step === "DONE";
+  hintBtn.addEventListener("click", () => { PS.hint += 1; PS.msg = ""; sfx.whistle(); renderProblem(); });
+  tools.append(readBtn, hintBtn);
+  boardWrap.appendChild(tools);
+  if (PS.hint > 0) boardWrap.appendChild(el("div", "hint-label", `Hint ${PS.hint}: ${HINTS[PS.hint - 1].label}`));
   game.appendChild(boardWrap);
 
-  // feedback
-  const fb = el("div", "feedback-line" + (PS.msgKind ? " " + PS.msgKind : ""), PS.msg);
-  fb.id = "feedback";
-  game.appendChild(fb);
-  if (PS.keyCard) {
+  if (PS.hint >= 2) {
     const kc = el("div", "card key-card");
     kc.appendChild(el("div", "kicker", "Key word card"));
     for (const [phrase, meaning] of keyCard(p)) {
@@ -482,165 +510,20 @@ function renderProblem() {
     }
     game.appendChild(kc);
   }
+  if (PS.hint >= 3) game.appendChild(el("div", "plan-line", planText(p)));
 
-  // step-specific deck
+  const fb = el("div", "feedback-line" + (PS.msgKind ? " " + PS.msgKind : ""), PS.msg);
+  fb.id = "feedback";
+  game.appendChild(fb);
+
   const deck = el("div", "deck");
-  if (PS.step === "E2") deck.appendChild(buildEvaluate(p));
-  if (PS.step === "S") deck.appendChild(buildSolve(p));
+  if (PS.step === "SOLVE") deck.appendChild(buildSolve(p));
   if (PS.step === "DONE") deck.appendChild(buildDone(p));
-  if (["C", "U", "B", "E"].includes(PS.step)) {
-    const row = el("btn-row" ? "div" : "div", "btn-row");
-    if (PS.step === "E") {
-      const none = el("button", "btn secondary", "Nothing to cross out");
-      none.addEventListener("click", () => { PS.crumpled.clear(); sfx.tap(); doneStep(); });
-      row.appendChild(none);
-    }
-    const done = el("button", "btn primary", info.done + " ✔");
-    done.addEventListener("click", doneStep);
-    row.appendChild(done);
-    deck.appendChild(row);
-  }
   game.appendChild(deck);
   app.appendChild(game);
 }
 
-function onChipTap(c) {
-  const p = curP();
-  if (PS.crumpled.has(c.sid) && PS.step !== "E") return;
-  if (PS.step === "C") { PS.circled.has(c.id) ? PS.circled.delete(c.id) : PS.circled.add(c.id); sfx.circle(); PS.msg = ""; PS.pulse.clear(); renderProblem(); return; }
-  if (PS.step === "B") { PS.boxed.has(c.id) ? PS.boxed.delete(c.id) : PS.boxed.add(c.id); sfx.box(); PS.msg = ""; PS.pulse.clear(); renderProblem(); return; }
-  onSentenceTap(c.sid);
-}
-function onSentenceTap(si) {
-  if (PS.step === "U") { PS.underlined = si; sfx.underline(); PS.msg = ""; PS.pulseSent = null; renderProblem(); return; }
-  if (PS.step === "E") {
-    if (PS.crumpled.has(si)) { PS.crumpled.delete(si); sfx.tap(); }
-    else { PS.crumpled.add(si); sfx.crumple(); setTimeout(() => sfx.thunk(), 260); }
-    PS.msg = ""; PS.pulseSent = null; renderProblem();
-  }
-}
-
-function award(letter) {
-  PS.stars[letter] = true;
-  G.stars += 1; G.letters[letter] += 1;
-  store.letters[letter][0] += 1;
-}
-function attempt(letter) { store.letters[letter][1] += 1; }
-
-function doneStep() {
-  const p = curP();
-  const step = PS.step;
-  let res;
-  if (step === "C") res = P.verify.circle(p, [...PS.circled], store.circleAll);
-  if (step === "U") res = P.verify.underline(p, PS.underlined);
-  if (step === "B") res = P.verify.box(p, [...PS.boxed]);
-  if (step === "E") res = P.verify.eliminate(p, [...PS.crumpled]);
-  if (!res) return;
-
-  if (res.ok) {
-    const letter = STEP_INFO[step].letter;
-    if (step !== "E") { attempt(letter); if (PS.first[step]) award(letter); }
-    PS.msg = ""; PS.msgKind = ""; PS.pulse.clear(); PS.pulseSent = null;
-    if (step === "C") { PS.step = "U"; sfx.good(); }
-    else if (step === "U") { PS.step = "B"; sfx.good(); }
-    else if (step === "B") { PS.step = "E"; PS.keyCard = true; sfx.good(); }
-    else if (step === "E") { PS.step = "E2"; PS.keyCard = false; sfx.good(); }
-    renderProblem();
-    return;
-  }
-  // wrong: message, no advance; second miss gets a nudge on the right target
-  PS.first[step] = false;
-  PS.misses[step] += 1;
-  PS.msg = res.msg; PS.msgKind = "bad";
-  sfx.miss();
-  if (PS.misses[step] >= 2) {
-    if (step === "C" && res.missing) res.missing.forEach((id) => PS.pulse.add(id));
-    if (step === "U") PS.pulseSent = p.sentences.findIndex((s) => s.role === "question");
-    if (step === "B" && res.hint) p.chips.filter((c) => c.phrase && res.hint.split(" ").includes(c.text)).forEach((c) => PS.pulse.add(c.id));
-    if (step === "E") {
-      if (res.bounce !== undefined) PS.crumpled.delete(res.bounce);
-      const d = p.sentences.findIndex((s, i) => s.role === "distractor" && !PS.crumpled.has(i));
-      if (d >= 0) PS.pulseSent = d;
-    }
-  } else if (step === "E" && res.bounce !== undefined) {
-    PS.crumpled.delete(res.bounce);   // the boss needed that one — it bounces back out of the bin
-  }
-  renderProblem();
-}
-
-/* ---------- E2: Evaluate — what's missing, then build the sum ---------- */
-function buildEvaluate(p) {
-  const wrap = el("div", "eval");
-  const q = el("div", "eval-q", "What is the question asking for?");
-  wrap.appendChild(q);
-  const picks = el("div", "schema-row");
-  [["EACH", "how many in EACH bin"], ["GROUP", "how many BINS"], ["TOTAL", "how many ALTOGETHER"]].forEach(([k, label]) => {
-    const b = el("button", "schema-btn" + (PS.schemaPick === k ? " picked" : ""), label);
-    b.addEventListener("click", () => { PS.schemaPick = k; PS.msg = ""; sfx.tap(); renderProblem(); });
-    picks.appendChild(b);
-  });
-  wrap.appendChild(picks);
-
-  if (PS.schemaPick) {
-    const op = PS.schemaPick === "TOTAL" ? "×" : "÷";
-    const frame = el("div", "frame");
-    [0, 1].forEach((i) => {
-      const v = slotVal(i);
-      const s = PS.slots[i];
-      const slot = el("button", "slot" + (v !== null ? " filled" : "") + (PS.pickChip === null && v === null ? " wait" : ""),
-        v === null ? "" : (s.plus ? `${p.chips[s.chip].value}+1` : String(v)));
-      slot.addEventListener("click", () => {
-        if (PS.pickChip !== null) {
-          // a chip can live in one slot only
-          PS.slots.forEach((o) => { if (o.chip === PS.pickChip) { o.chip = null; o.plus = false; } });
-          PS.slots[i] = { chip: PS.pickChip, plus: false }; PS.pickChip = null; sfx.box();
-        } else if (s.chip !== null) { PS.slots[i] = { chip: null, plus: false }; sfx.tap(); }
-        PS.msg = ""; renderProblem();
-      });
-      frame.appendChild(slot);
-      if (i === 0) frame.appendChild(el("span", "op", op));
-    });
-    frame.appendChild(el("span", "op", "= ?"));
-    wrap.appendChild(frame);
-
-    const chips = el("div", "num-chips");
-    const survivors = p.chips.filter((c) => c.isNumber && PS.circled.has(c.id) && !PS.crumpled.has(c.sid));
-    survivors.forEach((c) => {
-      const used = PS.slots.some((o) => o.chip === c.id);
-      const b = el("button", "num-chip" + (PS.pickChip === c.id ? " picked" : "") + (used ? " used" : ""),
-        c.text.replace(/[^\w$]/g, "") + (c.value !== null && !/^\$?\d+$/.test(c.text.replace(/[^\w$]/g, "")) ? ` (${c.value})` : ""));
-      b.addEventListener("click", () => { if (used) return; PS.pickChip = PS.pickChip === c.id ? null : c.id; sfx.tap(); renderProblem(); });
-      chips.appendChild(b);
-    });
-    if (p.selfIncluded) {
-      const me = el("button", "num-chip me" + (PS.slots[1].plus ? " picked" : ""), "+ himself");
-      me.addEventListener("click", () => {
-        if (PS.slots[1].chip === null) { PS.msg = "Put the friends number in first, then add him."; PS.msgKind = "bad"; renderProblem(); return; }
-        PS.slots[1].plus = !PS.slots[1].plus; sfx.tap(); PS.msg = ""; renderProblem();
-      });
-      chips.appendChild(me);
-    }
-    wrap.appendChild(chips);
-
-    const row = el("div", "btn-row");
-    const done = el("button", "btn primary", STEP_INFO.E2.done + " ✔");
-    done.addEventListener("click", () => {
-      const res = P.verify.evaluate(p, PS.schemaPick, [slotVal(0), slotVal(1)]);
-      attempt("E");
-      if (res.ok) {
-        if (PS.first.E && PS.first.E2) award("E");
-        PS.step = "S"; PS.msg = ""; PS.msgKind = ""; sfx.good(); renderProblem();
-      } else {
-        PS.first.E2 = false; PS.misses.E2 += 1; PS.msg = res.msg; PS.msgKind = "bad"; sfx.miss(); renderProblem();
-      }
-    });
-    row.appendChild(done);
-    wrap.appendChild(row);
-  }
-  return wrap;
-}
-
-/* ---------- S: Solve, then CHECK by multiplying back, then the drop ---------- */
+/* ---------- Solve, then CHECK by multiplying back, then the drop ---------- */
 function fieldsFor(p) {
   const f = [];
   if (p.type === "SHARE") f.push({ k: "ans", label: "in each bin" });
@@ -677,13 +560,12 @@ function buildSolve(p) {
     cbox.addEventListener("click", () => { PS.active = "prod"; sfx.tap(); renderProblem(); });
     check.appendChild(cbox);
     wrap.appendChild(check);
-    if (PS.active === "ans" || PS.active === "rem") { /* leave the pad on the answer until he moves */ }
   }
 
   wrap.appendChild(buildPad());
 
   const row = el("div", "btn-row");
-  const run = el("button", "btn primary", STEP_INFO.S.done + " 🧪");
+  const run = el("button", "btn primary", "Run the experiment 🧪");
   run.disabled = !(answered && PS.fields.prod !== undefined);
   run.addEventListener("click", () => onRun(p));
   row.appendChild(run);
@@ -714,7 +596,6 @@ function buildPad() {
 function onRun(p) {
   const ans = PS.fields.ans, rem = PS.fields.rem, prod = PS.fields.prod;
   const hasRem = p.type.endsWith("_REM");
-  attempt("S");
   const truth = p.type === "TOTAL" ? p.G : p.N;
   // 0. a TOTAL answer that will not split into K equal bins: there is no product to type, his check has already caught it
   if (p.type === "TOTAL" && ans % p.K !== 0) {
@@ -722,19 +603,19 @@ function onRun(p) {
     PS.msg = `Your check caught it! ${ans} doesn't split into ${p.K} equal bins, so ${ans} can't be the total. Fix the answer.`;
     PS.msgKind = "bad"; PS.fields = {}; PS.active = "ans"; sfx.miss(); renderProblem(); return;
   }
-  // 1. his arithmetic in the check must be right
+  // 1. his arithmetic in the check must be right — that slip is the skill the test marks
   const hisCheck = p.type === "TOTAL" ? ans / p.K : ans * p.K + (hasRem ? (rem || 0) : 0);
   if (prod !== hisCheck) {
-    PS.first.S = false; PS.misses.S += 1;
+    PS.wrongRun = true;
     PS.msg = p.type === "TOTAL"
       ? `Check your working: ${ans} ÷ ${p.K} isn't ${prod}.`
       : `Check your times: ${ans} × ${p.K}${hasRem ? " + " + rem : ""} isn't ${prod}. Try that bit again.`;
     PS.msgKind = "bad"; delete PS.fields.prod; PS.active = "prod"; sfx.miss(); renderProblem(); return;
   }
-  // 2. the check must land on the number the lab started with
+  // 2. HIS check disagreeing with the lab is him catching himself: no penalty
   const solved = P.verify.solve(p, ans, rem).ok;
   if (prod !== truth) {
-    PS.selfCaught = true;                 // HIS check disagreed with the lab: the star survives if he fixes it
+    PS.selfCaught = true;
     PS.msg = p.type === "TOTAL"
       ? `Your check caught it! ${ans} ÷ ${p.K} = ${prod}, but there are ${p.G} bins. Fix the answer.`
       : `Your check caught it! ${ans} × ${p.K}${hasRem ? " + " + rem : ""} = ${prod}, but the lab has ${p.N}. Fix the answer.`;
@@ -742,12 +623,15 @@ function onRun(p) {
   }
   if (!solved) {
     // the check added up but the answer is still wrong (leftovers that would fill another bin): the app caught it, not him
-    PS.first.S = false; PS.misses.S += 1;
+    PS.wrongRun = true;
     PS.msg = `${rem} left over is enough to fill another bin. Share those out too.`;
     PS.msgKind = "bad"; PS.fields = {}; PS.active = "ans"; sfx.miss(); renderProblem(); return;
   }
-  // 3. correct, and verified by him — now, and only now, the drop
-  if (PS.first.S || PS.selfCaught) award("S");
+  // 3. right, and verified by him: five stars less a star per hint, less one for a slip
+  PS.stars = Math.max(1, 5 - PS.hint - (PS.wrongRun ? 1 : 0));
+  G.stars += PS.stars; G.hintsUsed += PS.hint;
+  if (PS.hint === 0) G.noHint += 1;
+  if (PS.stars === 5) G.clean += 1;
   PS.msg = ""; PS.msgKind = "";
   PS.step = "DONE";
   renderProblem();
@@ -755,13 +639,11 @@ function onRun(p) {
   const myG = G;
   setTimeout(() => runDrop(p, stageWrap, () => {
     if (G !== myG || !stageWrap.isConnected) return;   // he tapped End mid-drop
-    const stamp = el("div", "stamp", "VERIFIED");
-    stageWrap.appendChild(stamp);
+    stageWrap.appendChild(el("div", "stamp", "VERIFIED"));
     const fact = document.getElementById("fact");
     if (fact) fact.textContent = p.type === "TOTAL" ? `${p.K} × ${p.G} = ${p.N} ✓` : `${p.q} × ${p.K}${p.r ? " + " + p.r : ""} = ${p.N} ✓`;
     sfx.verified();
-    const allFive = LETTERS.every((L) => PS.stars[L]);
-    if (allFive) { G.clean += 1; setTimeout(() => popText(innerWidth / 2 - 90, 90, "⭐ CLEAN EXPERIMENT", true), 300); }
+    if (PS.stars === 5) setTimeout(() => popText(innerWidth / 2 - 90, 90, "⭐ CLEAN EXPERIMENT", true), 300);
     const nb = document.getElementById("next-btn"); if (nb) nb.disabled = false;
   }), 250);
 }
@@ -919,30 +801,20 @@ function endRound() {
   const wrap = el("div", "summary");
   wrap.appendChild(el("h2", null, G.stars >= 30 ? "SPOTLESS LAB! 🏆" : G.stars >= 24 ? "Professor Bin is impressed 🧪" : "Experiments complete 🧪"));
   wrap.appendChild(el("div", "final-score", `${G.stars} / 30`));
-  wrap.appendChild(el("div", "sub", `Level ${tier} · ${TIERS[tier].name} · ${G.clean} clean experiment${G.clean === 1 ? "" : "s"}`));
+  wrap.appendChild(el("div", "sub", `Level ${tier} · ${TIERS[tier].name}`));
   if (isBest && G.stars > 0) wrap.appendChild(el("div", "newbest", `⭐ New Level ${tier} record!`));
 
-  // which letter leaks: this is the line for Dad and the tutor
-  const bars = el("div", "letter-bars");
-  LETTERS.forEach((L) => {
-    const row = el("div", "lb-row");
-    row.appendChild(el("span", "lb-letter cube " + L, L));
-    const track = el("div", "lb-track");
-    const fill = el("div", "lb-fill"); fill.style.width = (100 * G.letters[L] / ROUND_LEN) + "%";
-    track.appendChild(fill);
-    row.appendChild(track);
-    row.appendChild(el("span", "lb-num", `${G.letters[L]}/${ROUND_LEN}`));
-    bars.appendChild(row);
-  });
-  wrap.appendChild(bars);
-  const weakest = LETTERS.reduce((a, b) => (G.letters[b] < G.letters[a] ? b : a), "C");
-  if (G.letters[weakest] < ROUND_LEN) wrap.appendChild(el("div", "lb-note", `Most stars lost on ${weakest} — ${STEP_INFO[weakest].title.toLowerCase()}.`));
+  // the line for Dad and the tutor: how much of it he did unaided
+  const stats = el("div", "sum-stats");
+  [[`${G.noHint}/${ROUND_LEN}`, "no hint needed"], [`${G.hintsUsed}`, "CUBES hints used"], [`${G.clean}`, "clean experiments"]]
+    .forEach(([v, l]) => { const d = el("div", "stat"); d.innerHTML = `<b>${v}</b><br>${l}`; stats.appendChild(d); });
+  wrap.appendChild(stats);
 
   const gate = G.stars / 30;
   if (gate >= 0.75) {
     const suggested = gate >= 0.97 ? 3 : 2;
     const entry = { choreName: `🧪 Drop Lab: ${G.stars}/30 (Level ${tier})`, coins: suggested,
-      note: `${G.clean} clean experiments` + (G.stars >= 30 ? " — SPOTLESS!" : "") };
+      note: `${G.noHint} of ${ROUND_LEN} with no hint` + (G.stars >= 30 ? " — SPOTLESS!" : "") };
     const coinBtn = el("button", "btn coin", `🪙 Ask for ${suggested} Trawley Coins`);
     coinBtn.addEventListener("click", async () => {
       coinBtn.disabled = true; coinBtn.textContent = "Sending…";
