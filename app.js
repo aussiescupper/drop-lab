@@ -23,6 +23,7 @@ function loadStore() {
     wobbliesOnly: false,           // every request about Wobblies (the ragdolls), if he'd rather
     career: { stars: 0, rounds: 0, clean: 0 },
     best: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    bestMatch: { 1: 0, 2: 0, 3: 0, 4: 0 },   // match-the-sum keeps its own records
     introSeen: false,
   };
   try {
@@ -30,6 +31,7 @@ function loadStore() {
     return Object.assign(base, raw, {
       career: Object.assign(base.career, raw.career || {}),
       best: Object.assign(base.best, raw.best || {}),
+      bestMatch: Object.assign(base.bestMatch, raw.bestMatch || {}),
     });
   } catch (e) { return base; }
 }
@@ -308,15 +310,26 @@ function renderHome() {
     b.appendChild(el("span", "tier-num", `Level ${t}`));
     b.appendChild(el("span", "tier-name", TIERS[t].name));
     b.appendChild(el("span", "tier-sub", TIERS[t].sub));
-    b.appendChild(el("span", "tier-best", store.best[t] ? `Best ${store.best[t]}/30` : "Not played yet"));
+    const bs = store.best[t], bm = store.bestMatch[t];
+    b.appendChild(el("span", "tier-best", bs || bm
+      ? [bs ? `Best ${bs}/30` : null, bm ? `Match ${bm}/30` : null].filter(Boolean).join(" · ")
+      : "Not played yet"));
     b.addEventListener("click", () => { store.tier = t; saveStore(); sfx.tap(); renderHome(); });
     tiers.appendChild(b);
   }
   home.appendChild(tiers);
 
   const start = el("button", "btn primary start-btn", "🧪 New experiment round");
-  start.addEventListener("click", () => { sfx.whistle(); startRound(store.tier); });
+  start.addEventListener("click", () => { sfx.whistle(); startRound(store.tier, "solve"); });
   home.appendChild(start);
+
+  // The other way in: don't work it out, just say which sum the story IS.
+  // Same six requests, stopping at the step where the marks actually go.
+  const matchBtn = el("button", "btn match-btn start-btn");
+  matchBtn.appendChild(el("span", "mb-top", "🏷️ Match the sum"));
+  matchBtn.appendChild(el("span", "mb-sub", "No working out — just pick the number sentence that fits"));
+  matchBtn.addEventListener("click", () => { sfx.whistle(); startRound(store.tier, "match"); });
+  home.appendChild(matchBtn);
 
   const pills = el("div", "pill-row");
   const lesson = el("button", "pill", "🎓 Lesson — the CUBES card");
@@ -360,10 +373,11 @@ function renderHome() {
    He reads the request, works it out, types the answer and CHECKS it, and only
    then do the Wobblies drop. CUBES is not a gate he taps through: it is a hint
    he can ask for when he is stuck, and each one costs a star. */
-function startRound(tier) {
+function startRound(tier, mode) {
   if (!store.introSeen) { renderLesson(true); return; }
   const seed = (Date.now() ^ (Math.random() * 1e9)) | 0;
-  G = { tier, seed, problems: P.makeRound(tier, seed, { objCls: store.wobbliesOnly ? "wobbly" : null }),
+  G = { tier, seed, mode: mode || "solve",
+        problems: P.makeRound(tier, seed, { objCls: store.wobbliesOnly ? "wobbly" : null }),
         idx: 0, stars: 0, noHint: 0, hintsUsed: 0, clean: 0 };
   newProblemState();
   renderProblem();
@@ -372,7 +386,13 @@ let PS = null;   // per-request state
 function curP() { return G.problems[G.idx]; }
 function newProblemState() {
   PS = { step: "SOLVE", hint: 0, fields: {}, active: null, wrongRun: false, selfCaught: false,
-         msg: "", msgKind: "", stars: 0 };
+         msg: "", msgKind: "", stars: 0, tried: [] };
+  // Match mode builds its tiles once per request, so a re-render after a wrong
+  // pick doesn't reshuffle them under his finger.
+  if (G.mode === "match") {
+    const mrng = P.mulberry32((G.seed ^ ((G.idx + 1) * 2654435761)) | 0);
+    PS.match = P.matchOptions(curP(), mrng);
+  }
 }
 
 /* Each tap of the hint has Professor Bin mark the request up the way the tutor's
@@ -482,9 +502,18 @@ function renderProblem() {
 
   const instr = el("div", "card instr-card");
   if (PS.step === "DONE") {
-    instr.innerHTML = `<div class="kicker">✓ Verified</div><div class="instr">Professor Bin approves — <b>${PS.stars} star${PS.stars === 1 ? "" : "s"}</b>${PS.hint ? ` (${PS.hint} hint${PS.hint === 1 ? "" : "s"})` : PS.wrongRun ? "" : " — no hints, first go!"}</div>`;
+    const sumLine = G.mode === "match" ? `<div class="instr"><b>${PS.match.correct} = ${p.type === "TOTAL" ? p.N : p.q}${p.r ? " r " + p.r : ""}</b></div>` : "";
+    instr.innerHTML = `<div class="kicker">✓ Verified</div>${sumLine}<div class="instr">Professor Bin approves — <b>${PS.stars} star${PS.stars === 1 ? "" : "s"}</b>${PS.hint ? ` (${PS.hint} hint${PS.hint === 1 ? "" : "s"})` : PS.wrongRun ? "" : " — no hints, first go!"}</div>`;
   } else {
-    instr.innerHTML = `<div class="kicker">Experiment request</div><div class="instr">Work it out, type the answer, then CHECK it by ${p.type === "TOTAL" ? "dividing" : "multiplying"} back. Stuck? Tap the CUBES hint — each one costs a star.</div>`;
+    // The how-to-play paragraph is worth its space once. From the second
+    // request on it shrinks to a single line, which on a phone is the
+    // difference between the Wobblies being on screen and being below the fold.
+    instr.innerHTML = G.idx > 0 ? (G.mode === "match"
+      ? `<div class="instr short">Tap the number sentence that matches the story.</div>`
+      : `<div class="instr short">Work it out, then CHECK by ${p.type === "TOTAL" ? "dividing" : "multiplying"} back.</div>`)
+      : (G.mode === "match"
+      ? `<div class="kicker">Experiment request</div><div class="instr">Read it, then tap the number sentence that <b>matches the story</b>. Don't work it out — just say which sum it is. Stuck? Tap the CUBES hint — each one costs a star.</div>`
+      : `<div class="kicker">Experiment request</div><div class="instr">Work it out, type the answer, then CHECK it by ${p.type === "TOTAL" ? "dividing" : "multiplying"} back. Stuck? Tap the CUBES hint — each one costs a star.</div>`);
   }
   game.appendChild(instr);
 
@@ -520,12 +549,14 @@ function renderProblem() {
   if (PS.step === "SOLVE") {
     const waitWrap = el("div", "stage-wrap");
     waitWrap.appendChild(buildStage(p, true));
-    waitWrap.appendChild(el("div", "stage-caption", "The Wobblies are waiting. Answer it and they drop."));
+    waitWrap.appendChild(el("div", "stage-caption", G.mode === "match"
+      ? "The Wobblies are waiting. Pick the right sum and they drop."
+      : "The Wobblies are waiting. Answer it and they drop."));
     game.appendChild(waitWrap);
   }
 
   const deck = el("div", "deck");
-  if (PS.step === "SOLVE") deck.appendChild(buildSolve(p));
+  if (PS.step === "SOLVE") deck.appendChild(G.mode === "match" ? buildMatch(p) : buildSolve(p));
   if (PS.step === "DONE") deck.appendChild(buildDone(p));
   game.appendChild(deck);
   app.appendChild(game);
@@ -542,6 +573,61 @@ function fieldsFor(p) {
   if (p.type === "GROUP_REM") { f.push({ k: "ans", label: "full bins" }); f.push({ k: "rem", label: "left over" }); }
   return f;
 }
+/* ---------- match the sum ----------
+   From the tutor's worksheet: six stories, six number sentences, pair them up.
+   The paper version is cut and paste; here they are tiles he taps. The point is
+   that the arithmetic is gone, so nothing hides a wrong translation — picking
+   "6 ÷ 24" is the mistake, and it is the whole mistake.
+
+   A wrong tile is not simply refused: it crumples, keeps its place, and says
+   what is wrong with THAT sum, so the second pick is reasoning rather than
+   elimination-by-tapping. */
+function buildMatch(p) {
+  const wrap = el("div", "solve match");
+  wrap.appendChild(el("div", "pad-cue", "Which number sentence matches the story?"));
+
+  const grid = el("div", "sum-grid");
+  PS.match.options.forEach((o) => {
+    const dead = PS.tried.includes(o.t);
+    const tile = el("button", "sum-tile" + (dead ? " dead" : ""));
+    tile.appendChild(el("span", "sum-text", o.t));
+    tile.disabled = dead;
+    tile.addEventListener("click", () => onMatchPick(p, o));
+    grid.appendChild(tile);
+  });
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+function onMatchPick(p, o) {
+  if (!o.ok) {
+    PS.tried.push(o.t);
+    PS.wrongRun = true;
+    PS.msg = `Not ${o.t}. ${o.why}`;
+    PS.msgKind = "bad";
+    sfx.miss();
+    renderProblem();
+    return;
+  }
+  // right: score it the same way a solved request is scored, then drop
+  PS.stars = Math.max(1, 5 - PS.hint - (PS.wrongRun ? 1 : 0));
+  G.stars += PS.stars; G.hintsUsed += PS.hint;
+  if (PS.hint === 0) G.noHint += 1;
+  if (PS.stars === 5) G.clean += 1;
+  // the drop needs the answer even though he never typed it
+  PS.fields = { ans: p.type === "TOTAL" ? p.N : p.q, rem: p.r || undefined };
+  PS.msg = ""; PS.msgKind = "";
+  PS.step = "DONE";
+  renderProblem();
+  const stageWrap = document.getElementById("stage-wrap");
+  const myG = G;
+  setTimeout(() => runDrop(p, stageWrap, () => {
+    if (G !== myG || !stageWrap.isConnected) return;
+    const nb = document.getElementById("next-btn");
+    if (nb) nb.disabled = false;
+  }), 260);
+}
+
 function buildSolve(p) {
   const wrap = el("div", "solve");
   const fields = fieldsFor(p);
@@ -809,9 +895,10 @@ function flyObject(stage, from, to, cls, onLand) {
 function endRound() {
   sfx.cheer();
   stopSpeech();
-  const tier = G.tier;
-  const isBest = G.stars > (store.best[tier] || 0);
-  if (isBest) store.best[tier] = G.stars;
+  const tier = G.tier, match = G.mode === "match";
+  const table = match ? store.bestMatch : store.best;
+  const isBest = G.stars > (table[tier] || 0);
+  if (isBest) table[tier] = G.stars;
   store.career.stars += G.stars;
   store.career.rounds += 1;
   store.career.clean += G.clean;
@@ -821,8 +908,8 @@ function endRound() {
   const wrap = el("div", "summary");
   wrap.appendChild(el("h2", null, G.stars >= 30 ? "SPOTLESS LAB! 🏆" : G.stars >= 24 ? "Professor Bin is impressed 🧪" : "Experiments complete 🧪"));
   wrap.appendChild(el("div", "final-score", `${G.stars} / 30`));
-  wrap.appendChild(el("div", "sub", `Level ${tier} · ${TIERS[tier].name}`));
-  if (isBest && G.stars > 0) wrap.appendChild(el("div", "newbest", `⭐ New Level ${tier} record!`));
+  wrap.appendChild(el("div", "sub", `Level ${tier} · ${TIERS[tier].name}${match ? " · Match the sum" : ""}`));
+  if (isBest && G.stars > 0) wrap.appendChild(el("div", "newbest", `⭐ New Level ${tier}${match ? " match" : ""} record!`));
 
   // the line for Dad and the tutor: how much of it he did unaided
   const stats = el("div", "sum-stats");
@@ -833,7 +920,7 @@ function endRound() {
   const gate = G.stars / 30;
   if (gate >= 0.75) {
     const suggested = gate >= 0.97 ? 3 : 2;
-    const entry = { choreName: `🧪 Drop Lab: ${G.stars}/30 (Level ${tier})`, coins: suggested,
+    const entry = { choreName: `🧪 Drop Lab${match ? " — Match the sum" : ""}: ${G.stars}/30 (Level ${tier})`, coins: suggested,
       note: `${G.noHint} of ${ROUND_LEN} with no hint` + (G.stars >= 30 ? " — SPOTLESS!" : "") };
     const coinBtn = el("button", "btn coin", `🪙 Ask for ${suggested} Trawley Coins`);
     coinBtn.addEventListener("click", async () => {
@@ -848,8 +935,11 @@ function endRound() {
   }
 
   const row = el("div", "btn-row");
-  const again = el("button", "btn primary", "Another round");
-  again.addEventListener("click", () => { sfx.whistle(); startRound(tier); });
+  // another round stays in the mode he just played, rather than quietly
+  // dropping him back into the typing one
+  const again = el("button", "btn primary", match ? "Another matching round" : "Another round");
+  const mode = G.mode;
+  again.addEventListener("click", () => { sfx.whistle(); startRound(tier, mode); });
   const home = el("button", "btn secondary", "Home");
   home.addEventListener("click", () => { sfx.tap(); renderHome(); });
   row.append(again, home);

@@ -342,6 +342,66 @@
     },
   };
 
+  /* ---------- match the number sentence ----------
+     The worksheet style: don't work it out, just say which sum this story IS.
+     That is the E of CUBES on its own — the translation, with the arithmetic
+     taken out of the way, which is where the marks are actually lost.
+
+     The wrong tiles are the three real mistakes, not padding:
+       K / N   the numbers the wrong way round (the classic)
+       N * K   "each" read as multiply
+       N +- K  an operation grabbed from nowhere
+     and, when the story carries a red herring, that number used as the divisor —
+     which is the same skill as the E of eliminating it. */
+  function matchOptions(p, rng) {
+    const V2 = { "\u00f7": (a, b) => a / b, "\u00d7": (a, b) => a * b, "+": (a, b) => a + b, "-": (a, b) => a - b };
+    const S = (a, op, b) => ({ t: `${a} ${op} ${b}`, v: V2[op](a, b) });
+    const correct = p.type === "TOTAL" ? S(p.K, "\u00d7", p.G) : S(p.N, "\u00f7", p.K);
+
+    const pool = [];
+    if (p.type === "TOTAL") {
+      // never offer G x K: that is the same sum commuted, so it would be right too
+      pool.push(
+        { s: S(p.N, "\u00f7", p.K), why: "That shares the total out. The total is what you're being asked for." },
+        { s: S(p.G, "\u00f7", p.K), why: "Dividing here makes the answer smaller. Filling bins makes it bigger." },
+        { s: S(p.K, "+", p.G),       why: "Adding gives one bin plus the number of bins, which isn't a thing." },
+        { s: S(p.N, "\u00f7", p.G), why: "That shares the total out. The total is what you're being asked for." },
+        { s: S(p.N, "-", p.K),       why: "Taking away doesn't fill bins." },
+      );
+    } else {
+      pool.push(
+        { s: S(p.K, "\u00f7", p.N), why: "Those are round the wrong way. The big number gets shared out, not the small one." },
+        { s: S(p.N, "\u00d7", p.K), why: "Times makes it bigger. Sharing out makes it smaller." },
+        { s: S(p.N, "-", p.K),       why: "Taking away isn't sharing. Every bin has to get the same." },
+        { s: S(p.N, "+", p.K),       why: "Adding them together doesn't share anything out." },
+      );
+      // the red herring, used as a divisor: eliminating it is the whole point
+      const red = p.chips.filter((c) => c.isNumber && c.numberRole === "distractor")
+        .map((c) => parseInt(c.text, 10))
+        .filter((d) => d > 1 && d !== p.K && d !== p.N);
+      if (red.length) pool.unshift({ s: S(p.N, "\u00f7", red[0]), why: `The ${red[0]} is in a sentence the question never asks about.` });
+    }
+
+    // Three wrong tiles. A tile is rejected if it reads the same as another OR
+    // if it arrives at the right answer by a wrong route — "4 - 2" when the
+    // answer is 2 is unmarkable, and the pool is stocked deep enough to spare it.
+    const truth = correct.v;
+    const wrong = [];
+    const seen = new Set([correct.t]);
+    for (const c of pool) {
+      if (wrong.length === 3) break;
+      if (seen.has(c.s.t) || c.s.v === truth) continue;
+      seen.add(c.s.t); wrong.push(c);
+    }
+    const options = [{ t: correct.t, ok: true, why: "" }, ...wrong.map((c) => ({ t: c.s.t, ok: false, why: c.why }))];
+    // shuffle, so the answer isn't always first
+    for (let i = options.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [options[i], options[j]] = [options[j], options[i]];
+    }
+    return { options, correct: correct.t, answer: truth };
+  }
+
   function makeRound(tier, seed, opts) {
     opts = opts || {};
     const rng = mulberry32(seed | 0);
@@ -359,5 +419,5 @@
     return out;
   }
 
-  root.DropLabProblems = { makeProblem, makeRound, tokenise, verify: V, OBJECTS, FRACTIONS, mulberry32 };
+  root.DropLabProblems = { makeProblem, makeRound, matchOptions, tokenise, verify: V, OBJECTS, FRACTIONS, mulberry32 };
 })(typeof self !== "undefined" ? self : globalThis);

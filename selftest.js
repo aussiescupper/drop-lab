@@ -23,6 +23,35 @@ for (let seed = 1; seed <= 600; seed++) {
       const tag = `tier${p.tier} ${p.type} seed${seed}: "${p.text}"`;
       const fail = (why) => fails.push(why + "  <-  " + tag);
 
+      // ---- match-the-sum tiles ----
+      // The tiles are the whole question in match mode, so a duplicate, a
+      // missing answer, or a wrong tile that is secretly right would all be
+      // unwinnable. Evaluate every one arithmetically rather than trusting
+      // the strings.
+      {
+        const mrng = P.mulberry32(seed * 31 + tier);
+        const M = P.matchOptions(p, mrng);
+        if (M.options.length !== 4) fail(`match: ${M.options.length} tiles, want 4`);
+        if (M.options.filter((o) => o.ok).length !== 1) fail("match: not exactly one correct tile");
+        if (new Set(M.options.map((o) => o.t)).size !== M.options.length) fail("match: duplicate tiles");
+        const truth = p.type === "TOTAL" ? p.N : Math.floor(p.N / p.K);
+        for (const o of M.options) {
+          const m = o.t.match(/^(\d+) (.) (\d+)$/);
+          if (!m) { fail(`match: unparseable tile "${o.t}"`); continue; }
+          const a = +m[1], b = +m[3];
+          const v = m[2] === "\u00f7" ? a / b : m[2] === "\u00d7" ? a * b : m[2] === "+" ? a + b : a - b;
+          if (o.ok) {
+            // the right tile must BE the sum the story asks for
+            if (m[2] !== (p.type === "TOTAL" ? "\u00d7" : "\u00f7")) fail(`match: correct tile "${o.t}" has the wrong operation`);
+            if (Math.floor(v) !== truth) fail(`match: correct tile "${o.t}" = ${v}, want ${truth}`);
+          } else {
+            // a wrong tile that lands on the right answer anyway is unmarkable
+            if (v === truth) fail(`match: wrong tile "${o.t}" also gives ${truth}`);
+            if (!o.why) fail(`match: wrong tile "${o.t}" has no explanation`);
+          }
+        }
+      }
+
       // exactly one question
       if (p.sentences.filter((s) => s.role === "question").length !== 1) fail("not exactly one question");
       // words cap
