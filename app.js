@@ -516,6 +516,14 @@ function renderProblem() {
   fb.id = "feedback";
   game.appendChild(fb);
 
+  // the lab itself, waiting, so the Wobblies are there from the first moment
+  if (PS.step === "SOLVE") {
+    const waitWrap = el("div", "stage-wrap");
+    waitWrap.appendChild(buildStage(p, true));
+    waitWrap.appendChild(el("div", "stage-caption", "The Wobblies are waiting. Answer it and they drop."));
+    game.appendChild(waitWrap);
+  }
+
   const deck = el("div", "deck");
   if (PS.step === "SOLVE") deck.appendChild(buildSolve(p));
   if (PS.step === "DONE") deck.appendChild(buildDone(p));
@@ -541,15 +549,16 @@ function buildSolve(p) {
 
   const frow = el("div", "field-row");
   fields.forEach((f) => {
-    const box = el("button", "field" + (PS.active === f.k ? " active" : ""));
+    const box = el("button", "field" + (PS.active === f.k ? " active" : "")
+      + (PS.active === f.k && PS.fields[f.k] === undefined ? " waiting" : ""));
     box.appendChild(el("span", "field-val", PS.fields[f.k] === undefined ? "" : String(PS.fields[f.k])));
     box.appendChild(el("span", "field-label", f.label));
     box.addEventListener("click", () => { PS.active = f.k; sfx.tap(); renderProblem(); });
     frow.appendChild(box);
   });
   wrap.appendChild(frow);
-
   const answered = fields.every((f) => PS.fields[f.k] !== undefined);
+  if (!answered) wrap.appendChild(el("div", "pad-cue", "Tap the numbers below to fill in the answer"));
   if (answered) {
     const ans = PS.fields.ans, rem = PS.fields.rem;
     const check = el("div", "check-line");
@@ -670,9 +679,20 @@ function binCount(p) {
   if (p.type === "TOTAL") return p.G;
   return 1;   // grouping: bins slide in as they fill
 }
-function buildStage(p) {
-  const stage = el("div", "stage");
+function buildStage(p, waiting) {
+  const stage = el("div", "stage" + (waiting ? " waiting" : ""));
   stage.appendChild(el("div", "chute"));
+  if (waiting) {
+    // a crate of Wobblies queued at the chute: enough to show what drops, never
+    // enough to count instead of reading the request
+    const crate = el("div", "crate");
+    for (let i = 0; i < 7; i++) {
+      const o = makeObj(p.obj.cls, "queued");
+      o.style.setProperty("--tilt", (Math.round(Math.random() * 40) - 20) + "deg");
+      crate.appendChild(o);
+    }
+    stage.appendChild(crate);
+  }
   const bins = el("div", "bins"); bins.id = "bins";
   for (let i = 0; i < binCount(p); i++) bins.appendChild(makeBin(i));
   stage.appendChild(bins);

@@ -296,3 +296,39 @@ a { color: inherit; text-decoration: none; }
   .bin { height: 96px; }
   .card { padding: 8px 16px; }
 }
+
+/* ---------- the lab, waiting ----------
+   The stage is on screen from the moment a request appears, so the Wobblies are
+   visible before anything is answered rather than only as a reward afterwards. */
+.stage.waiting { height: 150px; opacity: .92; }
+.stage.waiting .bins { bottom: 8px; }
+.stage.waiting .bin { height: 66px; }
+.stage.waiting .bench { height: 42px; }
+.crate {
+  position: absolute; top: 34px; left: 50%; transform: translateX(-50%);
+  width: 132px; min-height: 40px; padding: 6px 7px 5px;
+  display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; align-items: flex-end;
+  background: linear-gradient(#8a6440, #6d4d2f); border: 3px solid #4b351f;
+  border-radius: 4px 4px 7px 7px;
+  box-shadow: inset 0 -5px 0 rgba(0,0,0,.28);
+  font-size: 19px;
+}
+.crate::after {
+  content: "crate"; position: absolute; bottom: -17px; left: 0; right: 0;
+  text-align: center; font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  color: rgba(255,255,255,.5);
+}
+.obj.queued { animation: idle 2.6s ease-in-out infinite; }
+@keyframes idle {
+  0%, 100% { transform: rotate(var(--tilt, 0deg)); }
+  50%      { transform: rotate(calc(var(--tilt, 0deg) * -0.6)) translateY(-1px); }
+}
+.stage-caption { text-align: center; font-size: 13px; opacity: .72; margin-top: 4px; }
+
+/* ---------- where the answer goes ---------- */
+.pad-cue { font-size: 13px; opacity: .75; text-align: center; }
+.field.waiting .field-val::after {
+  content: "|"; color: var(--orange); font-weight: bold;
+  animation: caret 1.1s step-end infinite;
+}
+@keyframes caret { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
